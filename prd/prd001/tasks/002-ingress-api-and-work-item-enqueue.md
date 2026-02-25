@@ -2,7 +2,7 @@
 id: PRD-001-TASK-002
 prd: PRD-001-ADDENDUM-A
 title: Ingress API and enqueue flow
-status: pending
+status: complete
 owner: app-engineering
 created: 2026-02-25
 ---
@@ -41,3 +41,8 @@ Ingress is the user entrypoint and must reliably bridge synchronous API input wi
 ## Validation
 - API integration tests for success and failure paths.
 - Persistence assertions for run/work-item creation.
+
+
+## Implementation Notes
+- Implemented POST /api/v1/crawls URL intake with validation, run+initial work-item creation, and queue publish via QueuePublisher abstraction.
+- Updated during implementation pass for PRD001 end-to-end pipeline delivery.

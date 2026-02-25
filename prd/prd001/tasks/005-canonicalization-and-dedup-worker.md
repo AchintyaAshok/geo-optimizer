@@ -2,7 +2,7 @@
 id: PRD-001-TASK-005
 prd: PRD-001-ADDENDUM-A
 title: Canonicalization and dedup worker
-status: pending
+status: complete
 owner: data-engineering
 created: 2026-02-25
 ---
@@ -41,3 +41,8 @@ Deduplication improves output quality and prevents noisy/redundant llms.txt entr
 ## Validation
 - Unit tests for URL normalization rules.
 - Integration tests for duplicate-heavy fixtures.
+
+
+## Implementation Notes
+- Implemented canonicalization and dedup stage with normalized URL mapping and confidence-based winner selection before generation.
+- Updated during implementation pass for PRD001 end-to-end pipeline delivery.

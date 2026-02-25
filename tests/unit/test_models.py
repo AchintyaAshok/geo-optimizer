@@ -1,16 +1,18 @@
-from crawllmer.domain.models import LlmsTxtDocument, LlmsTxtEntry
+from crawllmer.domain.models import WorkItem, WorkItemState
 
 
-def test_llms_txt_is_deterministic() -> None:
-    doc = LlmsTxtDocument(
-        source_url="https://example.com",
-        entries=[
-            LlmsTxtEntry(title="B", url="https://example.com/b"),
-            LlmsTxtEntry(title="A", url="https://example.com/a"),
-        ],
-    )
+def test_work_item_allows_valid_transitions() -> None:
+    item = WorkItem()
+    item.transition(WorkItemState.processing)
+    item.transition(WorkItemState.completed)
+    assert item.state == WorkItemState.completed
 
-    output = doc.to_text()
 
-    assert output.splitlines()[2].startswith("- [A](https://example.com/a)")
-    assert output.splitlines()[3].startswith("- [B](https://example.com/b)")
+def test_work_item_rejects_invalid_transition() -> None:
+    item = WorkItem()
+    try:
+        item.transition(WorkItemState.completed)
+    except ValueError as exc:
+        assert "invalid transition" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")

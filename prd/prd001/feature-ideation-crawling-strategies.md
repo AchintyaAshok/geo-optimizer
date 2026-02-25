@@ -1,6 +1,6 @@
 ---
 id: PRD-001-ADDENDUM-A
-status: draft
+status: complete
 owner: product+engineering
 created: 2026-02-25
 related_prd: PRD-001
@@ -232,3 +232,8 @@ The following tasks are intentionally independent and executable in sequence.
 - End-to-end run success rate.
 - Output quality score uplift.
 - Retry/lease-expiration recovery rate.
+
+
+## Implementation Progress Notes
+- Executed tasks 001-010 in a single implementation stream with working queue-driven orchestration in `src/crawllmer` and expanded tests.
+- Added baseline + Redis compose profiles to match staged deployment recommendations.

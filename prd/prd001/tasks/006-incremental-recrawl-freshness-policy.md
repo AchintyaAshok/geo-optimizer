@@ -2,7 +2,7 @@
 id: PRD-001-TASK-006
 prd: PRD-001-ADDENDUM-A
 title: Incremental recrawl freshness policy
-status: pending
+status: complete
 owner: reliability-engineering
 created: 2026-02-25
 ---
@@ -41,3 +41,8 @@ Incremental recrawls reduce bandwidth and runtime costs while preserving output 
 ## Validation
 - Integration tests with controlled ETag/Last-Modified fixtures.
 - Regression comparison between full and incremental outputs.
+
+
+## Implementation Notes
+- Added validator storage (ETag/Last-Modified) and conditional request support for incremental recrawls; extraction skips unchanged pages (304 responses).
+- Updated during implementation pass for PRD001 end-to-end pipeline delivery.

@@ -2,7 +2,7 @@
 id: PRD-001-TASK-010
 prd: PRD-001-ADDENDUM-A
 title: Celery + Redis scaling profile
-status: pending
+status: complete
 owner: platform-engineering
 created: 2026-02-25
 ---
@@ -40,3 +40,8 @@ As throughput grows, dedicated queue infrastructure improves reliability and ope
 ## Validation
 - Integration test with multi-worker Celery setup.
 - Restart/failure simulation to validate retry + ack behavior.
+
+
+## Implementation Notes
+- Added optional Celery queue publisher adapter plus Redis compose extension profile and migration notes in README/.env.example.
+- Updated during implementation pass for PRD001 end-to-end pipeline delivery.

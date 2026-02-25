@@ -49,3 +49,8 @@ By submitting your repository, you grant us permission to fork it for the sole p
 About Profound and Engineering Culture
 Profound is building the infrastructure layer for marketing in the generative internet. We're a data, search, and applied AI company at our core. Today, that means helping brands understand where and how they appear across AI interfaces like ChatGPT and Perplexity. Tomorrow, it means being the infrastructure companies rely on as AI agents, generative ads, and new discovery surfaces reshape how consumers find information.
 In engineering, we value speed, craftsmanship, and clear communication. As Linus Torvalds said, "Talk is cheap; show me the code." This project is your chance to show us how you think, build, and ship.
+
+
+## Implementation notes
+- Added queue-driven crawl pipeline with discovery, extraction, canonicalization, scoring, and deterministic llms.txt generation endpoints.
+- Added Docker Compose baseline plus Redis extension profile for local end-to-end and scaling-oriented runs.
