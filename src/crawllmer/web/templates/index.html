@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>crawllmer</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; }
+      input[type='url'] { width: 100%; padding: 0.8rem; font-size: 1.1rem; }
+      button { margin-top: 0.8rem; padding: 0.6rem 1rem; }
+      pre { background: #111; color: #e7e7e7; padding: 1rem; overflow: auto; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+      th, td { border: 1px solid #ddd; padding: 0.5rem; font-size: 0.9rem; }
+    </style>
+  </head>
+  <body>
+    <h1>crawllmer</h1>
+    <form method="post" action="/crawl">
+      <input type="url" name="url" placeholder="https://example.com" required />
+      <button type="submit">Generate llms.txt</button>
+    </form>
+
+    {% if run %}
+      <h2>Latest run</h2>
+      <p>Status: <strong>{{ run.status }}</strong></p>
+      <p>Strategies: {{ run.strategy_attempts }}</p>
+    {% endif %}
+
+    {% if document %}
+      <h2>Generated llms.txt</h2>
+      <pre>{{ document }}</pre>
+    {% endif %}
+
+    <h2>History</h2>
+    <table>
+      <thead><tr><th>Run ID</th><th>Host</th><th>Status</th><th>Strategies</th></tr></thead>
+      <tbody>
+      {% for item in history %}
+        <tr>
+          <td>{{ item.id }}</td>
+          <td>{{ item.target.hostname }}</td>
+          <td>{{ item.status }}</td>
+          <td>{{ item.strategy_attempts }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </body>
+</html>
