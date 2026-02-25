@@ -6,6 +6,8 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
+from pydantic import BaseModel, Field, HttpUrl
+
 
 class RunStatus(StrEnum):
     queued = "queued"
@@ -27,6 +29,63 @@ class WorkItemState(StrEnum):
     processing = "processing"
     completed = "completed"
     failed = "failed"
+
+
+class DiscoverySource(StrEnum):
+    llms = "llms"
+    robots = "robots"
+    sitemap = "sitemap"
+    crawl = "crawl"
+
+
+class WebsiteTarget(BaseModel):
+    url: HttpUrl
+    hostname: str
+
+
+class LlmsTxtEntry(BaseModel):
+    title: str
+    url: HttpUrl
+    description: str | None = None
+
+
+class LlmsTxtDocument(BaseModel):
+    source_url: HttpUrl
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    entries: list[LlmsTxtEntry] = Field(default_factory=list)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+    def to_text(self) -> str:
+        sorted_entries = sorted(self.entries, key=lambda item: str(item.url))
+        lines = [f"# llms.txt for {self.source_url.host}", ""]
+        for entry in sorted_entries:
+            line = f"- [{entry.title}]({entry.url})"
+            if entry.description:
+                line += f": {entry.description}"
+            lines.append(line)
+        return "\n".join(lines).strip() + "\n"
+
+
+class SitemapUrl(BaseModel):
+    loc: HttpUrl
+
+
+class SitemapDocument(BaseModel):
+    urls: list[SitemapUrl] = Field(default_factory=list)
+    children: list[HttpUrl] = Field(default_factory=list)
+
+
+class StrategyInput(BaseModel):
+    target: WebsiteTarget
+    run_id: UUID
+    discovered: list[tuple[HttpUrl, DiscoverySource]] = Field(default_factory=list)
+
+
+class StrategyOutput(BaseModel):
+    strategy_id: str
+    success: bool
+    discovered: list[tuple[HttpUrl, DiscoverySource]] = Field(default_factory=list)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 @dataclass(slots=True)
