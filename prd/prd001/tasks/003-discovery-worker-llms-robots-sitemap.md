@@ -2,7 +2,7 @@
 id: PRD-001-TASK-003
 prd: PRD-001-ADDENDUM-A
 title: Discovery worker for llms, robots, and sitemap
-status: pending
+status: complete
 owner: crawler-engineering
 created: 2026-02-25
 ---
@@ -45,3 +45,8 @@ Discovery quality determines downstream extraction coverage and crawl efficiency
 ## Validation
 - Unit tests for robots/sitemap parsing.
 - Integration tests with fixture websites covering each discovery path.
+
+
+## Implementation Notes
+- Implemented discovery worker functions for /llms.txt probing, robots.txt hint parsing, recursive sitemap traversal, bounded crawl fallback, and provenance persistence.
+- Updated during implementation pass for PRD001 end-to-end pipeline delivery.

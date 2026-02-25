@@ -2,7 +2,7 @@
 id: PRD-001-TASK-004
 prd: PRD-001-ADDENDUM-A
 title: Extraction worker with metadata quality tiers
-status: pending
+status: complete
 owner: crawler-engineering
 created: 2026-02-25
 ---
@@ -44,3 +44,8 @@ High-quality metadata is essential for generating accurate, useful llms.txt outp
 ## Validation
 - Unit tests for tiered precedence behavior.
 - Integration tests on mixed metadata fixture pages.
+
+
+## Implementation Notes
+- Implemented extraction worker with title/description tier precedence (<title>/meta, OG tags, JSON-LD regex fallback) and per-field provenance/confidence persistence.
+- Updated during implementation pass for PRD001 end-to-end pipeline delivery.

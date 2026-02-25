@@ -1,72 +1,109 @@
-from crawllmer.application.orchestrator import CrawlOrchestrator
-from crawllmer.domain.models import (
-    CrawlRun,
-    CrawlStatus,
-    LlmsTxtDocument,
-    LlmsTxtEntry,
-    StrategyResult,
-    WebsiteTarget,
-)
-from crawllmer.domain.ports import CrawlRunRepository, Strategy
+from __future__ import annotations
+
+from uuid import UUID
+
+from crawllmer.adapters.storage import SqliteCrawlRepository
+from crawllmer.application.orchestrator import CrawlPipeline
+from crawllmer.domain.ports import QueuePublisher
 
 
-class InMemoryRepo(CrawlRunRepository):
+class StubQueuePublisher(QueuePublisher):
     def __init__(self) -> None:
-        self.runs: list[CrawlRun] = []
+        self.messages: list[tuple[str, dict]] = []
 
-    def create_run(self, run: CrawlRun) -> CrawlRun:
-        self.runs.append(run)
-        return run
-
-    def update_run(self, run: CrawlRun) -> CrawlRun:
-        return run
-
-    def latest_runs(
-        self, hostname: str | None = None, limit: int = 20
-    ) -> list[CrawlRun]:
-        return self.runs[-limit:]
-
-    def strategy_history(self, hostname: str) -> list[str]:
-        return []
+    def publish(self, queue_name: str, payload: dict) -> None:
+        self.messages.append((queue_name, payload))
 
 
-class FailStrategy(Strategy):
-    id = "fail"
+class FakeResponse:
+    def __init__(
+        self, status_code: int, text: str = "", headers: dict | None = None
+    ) -> None:
+        self.status_code = status_code
+        self.text = text
+        self.headers = headers or {}
 
-    def can_handle(self, target: WebsiteTarget, context: dict) -> bool:
-        return True
 
-    def execute(self, target: WebsiteTarget, context: dict) -> StrategyResult:
-        return StrategyResult(strategy_id=self.id, success=False)
-
-
-class SuccessStrategy(Strategy):
-    id = "success"
-
-    def can_handle(self, target: WebsiteTarget, context: dict) -> bool:
-        return True
-
-    def execute(self, target: WebsiteTarget, context: dict) -> StrategyResult:
-        return StrategyResult(
-            strategy_id=self.id,
-            success=True,
-            document=LlmsTxtDocument(
-                source_url=target.url,
-                entries=[LlmsTxtEntry(title="Home", url=target.url)],
+def _fake_http_client() -> type:
+    pages = {
+        "https://example.com/llms.txt": FakeResponse(
+            200,
+            "- [Home](https://example.com/)\n- [About](https://example.com/about)",
+        ),
+        "https://example.com/robots.txt": FakeResponse(
+            200,
+            "User-agent: *\nSitemap: https://example.com/sitemap.xml",
+        ),
+        "https://example.com/sitemap.xml": FakeResponse(
+            200,
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            "<url><loc>https://example.com/</loc></url>\n"
+            "<url><loc>https://example.com/about/</loc></url>\n"
+            "</urlset>",
+        ),
+        "https://example.com/": FakeResponse(
+            200,
+            (
+                "<html><head><title>Home</title>"
+                '<meta name="description" content="Welcome" /></head></html>'
             ),
-        )
+            {"etag": '"abc"', "last-modified": "Mon, 10 Feb 2025 09:00:00 GMT"},
+        ),
+        "https://example.com/about": FakeResponse(
+            200,
+            (
+                '<html><head><meta property="og:title" content="About" />'
+                '<meta property="og:description" content="About us" /></head></html>'
+            ),
+            {"etag": '"def"', "last-modified": "Mon, 10 Feb 2025 09:00:00 GMT"},
+        ),
+    }
+
+    class FakeHttpClient:
+        def __init__(self, timeout: float = 8.0) -> None:  # noqa: ARG002
+            pass
+
+        def get(self, url: str, headers: dict | None = None):
+            headers = headers or {}
+            response = pages.get(url)
+            if response is None:
+                return FakeResponse(404)
+            if headers.get("If-None-Match") == response.headers.get("etag"):
+                return FakeResponse(304)
+            return response
+
+    return FakeHttpClient
 
 
-def test_orchestrator_short_circuits_on_success() -> None:
-    orchestrator = CrawlOrchestrator(
-        strategies=[FailStrategy(), SuccessStrategy(), FailStrategy()],
-        repository=InMemoryRepo(),
+def test_pipeline_completes_and_generates_deterministic_artifact(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "crawllmer.application.workers.httpx.Client", _fake_http_client()
     )
-    run, result = orchestrator.process(
-        WebsiteTarget(url="https://example.com", hostname="example.com")
-    )
+    repo = SqliteCrawlRepository(db_url=f"sqlite:///{tmp_path}/test.db")
+    pipeline = CrawlPipeline(repository=repo, queue=StubQueuePublisher())
 
-    assert run.status == CrawlStatus.succeeded
-    assert run.strategy_attempts == ["fail", "success"]
-    assert result is not None
-    assert result.success is True
+    run = pipeline.enqueue_run("https://example.com")
+    processed = pipeline.process_run(run.id)
+
+    assert processed.score is not None
+    artifact = repo.get_artifact(processed.id)
+    assert artifact is not None
+    assert "# llms.txt for example.com" in artifact.llms_txt
+
+    second = pipeline.enqueue_run("https://example.com")
+    processed_second = pipeline.process_run(second.id)
+    assert processed_second.status.value == "completed"
+
+
+def test_pipeline_rejects_unknown_run(tmp_path) -> None:
+    repo = SqliteCrawlRepository(db_url=f"sqlite:///{tmp_path}/test.db")
+    pipeline = CrawlPipeline(repository=repo, queue=StubQueuePublisher())
+    unknown = UUID("00000000-0000-0000-0000-000000000000")
+    try:
+        pipeline.process_run(unknown)
+    except ValueError as exc:
+        assert "run not found" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")

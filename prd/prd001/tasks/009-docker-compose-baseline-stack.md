@@ -2,7 +2,7 @@
 id: PRD-001-TASK-009
 prd: PRD-001-ADDENDUM-A
 title: Docker compose baseline stack
-status: pending
+status: complete
 owner: devops
 created: 2026-02-25
 ---
@@ -44,3 +44,8 @@ Developers need an easy and consistent environment to run the full architecture 
 ## Validation
 - Local smoke run of compose stack.
 - Basic end-to-end crawl execution check.
+
+
+## Implementation Notes
+- Added docker-compose baseline stack with API + worker services, shared persistent volume, env wiring, and health check instructions in README.
+- Updated during implementation pass for PRD001 end-to-end pipeline delivery.

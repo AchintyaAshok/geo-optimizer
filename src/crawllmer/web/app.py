@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, HttpUrl
 
-from crawllmer.web.runtime import LATEST, repo, run_crawl
+from crawllmer.application.observability import log_event
+from crawllmer.domain.models import RunStatus
+from crawllmer.web.runtime import pipeline, repo
 
 app = FastAPI(title="crawllmer")
 
@@ -20,45 +24,73 @@ def health() -> dict[str, str]:
 
 @app.post("/api/v1/crawls")
 def crawl_api(payload: CrawlRequest):
-    run, result = run_crawl(str(payload.url))
+    try:
+        run = pipeline.enqueue_run(str(payload.url))
+    except ValueError as exc:
+        log_event("api.crawl.enqueue.failed", url=str(payload.url), error=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    log_event("api.crawl.enqueued", run_id=run.id, status=run.status.value)
     return {
         "run_id": str(run.id),
         "status": run.status,
-        "strategy_attempts": run.strategy_attempts,
-        "llms_txt": result.document.to_text() if result and result.document else None,
+    }
+
+
+@app.post("/api/v1/crawls/{run_id}/process")
+def process_run(run_id: UUID):
+    run = repo.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    try:
+        run = pipeline.process_run(run_id)
+    except Exception as exc:  # noqa: BLE001
+        run.status = RunStatus.failed
+        run.notes["processing_error"] = str(exc)
+        repo.update_run(run)
+        log_event("api.crawl.process.failed", run_id=run_id, error=str(exc))
+        raise HTTPException(status_code=500, detail="processing failed") from exc
+
+    log_event("api.crawl.process.completed", run_id=run.id, score=run.score)
+    return {
+        "run_id": str(run.id),
+        "status": run.status,
+        "score": run.score,
+        "score_breakdown": run.score_breakdown,
     }
 
 
 @app.get("/api/v1/crawls/{run_id}")
-def crawl_status(run_id: str):
-    for run in repo.latest_runs(limit=200):
-        if str(run.id) == run_id:
-            return {
-                "run_id": run_id,
-                "status": run.status,
-                "strategy_attempts": run.strategy_attempts,
-                "diagnostics": run.diagnostics,
-            }
-    raise HTTPException(status_code=404, detail="run not found")
+def crawl_status(run_id: UUID):
+    run = repo.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return {
+        "run_id": str(run.id),
+        "status": run.status,
+        "score": run.score,
+        "score_breakdown": run.score_breakdown,
+    }
 
 
 @app.get("/api/v1/crawls/{run_id}/llms.txt", response_class=PlainTextResponse)
-def crawl_llms_txt(run_id: str):
-    llms = LATEST.get(run_id)
-    if not llms:
+def crawl_llms_txt(run_id: UUID):
+    artifact = repo.get_artifact(run_id)
+    if artifact is None:
         raise HTTPException(status_code=404, detail="llms.txt not found")
-    return llms
+    return artifact.llms_txt
 
 
 @app.get("/api/v1/history")
 def history(host: str | None = None):
-    runs = repo.latest_runs(hostname=host, limit=50)
+    runs = repo.list_runs(hostname=host, limit=50)
     return [
         {
             "run_id": str(run.id),
-            "host": run.target.hostname,
+            "host": run.hostname,
             "status": run.status,
-            "strategy_attempts": run.strategy_attempts,
+            "score": run.score,
         }
         for run in runs
     ]

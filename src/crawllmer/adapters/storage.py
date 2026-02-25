@@ -1,26 +1,88 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import UUID
 
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
-from crawllmer.domain.models import CrawlRun, CrawlStatus, WebsiteTarget
-from crawllmer.domain.ports import CrawlRunRepository
+from crawllmer.domain.models import (
+    CrawlRun,
+    ExtractedPage,
+    GenerationArtifact,
+    RunStatus,
+    WorkItem,
+    WorkItemState,
+    WorkStage,
+)
+from crawllmer.domain.ports import CrawlRepository
 
 
 class CrawlRunRecord(SQLModel, table=True):
     id: UUID = Field(primary_key=True)
+    target_url: str
     hostname: str = Field(index=True)
-    url: str
     status: str = Field(index=True)
-    strategy_attempts: str = ""
-    diagnostics: str = "{}"
+    score: float | None = None
+    score_breakdown: str = "{}"
+    artifact_path: str | None = None
+    notes: str = "{}"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+    completed_at: datetime | None = None
+
+
+class WorkItemRecord(SQLModel, table=True):
+    id: UUID = Field(primary_key=True)
+    run_id: UUID = Field(index=True)
+    stage: str = Field(index=True)
+    state: str = Field(index=True)
+    url: str
+    attempt_count: int = 0
+    last_error: str | None = None
+    priority: int = 100
+    extra_data: str = "{}"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+
+
+class WorkItemEventRecord(SQLModel, table=True):
+    id: UUID = Field(primary_key=True)
+    work_item_id: UUID = Field(index=True)
+    from_state: str
+    to_state: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
 
 
-class SqliteCrawlRunRepository(CrawlRunRepository):
+class DiscoveredUrlRecord(SQLModel, table=True):
+    id: UUID = Field(primary_key=True)
+    run_id: UUID = Field(index=True)
+    url: str = Field(index=True)
+    provenance: str
+
+
+class ExtractedPageRecord(SQLModel, table=True):
+    id: UUID = Field(primary_key=True)
+    run_id: UUID = Field(index=True)
+    url: str = Field(index=True)
+    title: str | None = None
+    description: str | None = None
+    provenance: str = "{}"
+    confidence: str = "{}"
+
+
+class UrlValidatorRecord(SQLModel, table=True):
+    url: str = Field(primary_key=True)
+    etag: str | None = None
+    last_modified: str | None = None
+
+
+class ArtifactRecord(SQLModel, table=True):
+    run_id: UUID = Field(primary_key=True)
+    llms_txt: str
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class SqliteCrawlRepository(CrawlRepository):
     def __init__(self, db_url: str = "sqlite:///./crawllmer.db") -> None:
         self.engine = create_engine(db_url)
         SQLModel.metadata.create_all(self.engine)
@@ -28,11 +90,15 @@ class SqliteCrawlRunRepository(CrawlRunRepository):
     def create_run(self, run: CrawlRun) -> CrawlRun:
         record = CrawlRunRecord(
             id=run.id,
-            hostname=run.target.hostname,
-            url=str(run.target.url),
+            target_url=run.target_url,
+            hostname=run.hostname,
             status=run.status.value,
-            strategy_attempts=",".join(run.strategy_attempts),
-            diagnostics=str(run.diagnostics),
+            score=run.score,
+            score_breakdown=json.dumps(run.score_breakdown),
+            artifact_path=run.artifact_path,
+            notes=json.dumps(run.notes),
+            created_at=run.created_at,
+            completed_at=run.completed_at,
         )
         with Session(self.engine) as session:
             session.add(record)
@@ -45,50 +111,234 @@ class SqliteCrawlRunRepository(CrawlRunRepository):
             if record is None:
                 return self.create_run(run)
             record.status = run.status.value
-            record.strategy_attempts = ",".join(run.strategy_attempts)
-            record.diagnostics = str(run.diagnostics)
+            record.score = run.score
+            record.score_breakdown = json.dumps(run.score_breakdown)
+            record.artifact_path = run.artifact_path
+            record.notes = json.dumps(run.notes)
+            record.completed_at = run.completed_at
             session.add(record)
             session.commit()
         return run
 
-    def latest_runs(
-        self, hostname: str | None = None, limit: int = 20
-    ) -> list[CrawlRun]:
+    def get_run(self, run_id: UUID) -> CrawlRun | None:
         with Session(self.engine) as session:
-            statement = select(CrawlRunRecord).order_by(
-                CrawlRunRecord.created_at.desc()
-            )
-            if hostname:
-                statement = statement.where(CrawlRunRecord.hostname == hostname)
-            records = session.exec(statement.limit(limit)).all()
+            record = session.get(CrawlRunRecord, run_id)
+            if record is None:
+                return None
+            return self._to_run(record)
+
+    def list_runs(self, hostname: str | None = None, limit: int = 50) -> list[CrawlRun]:
+        statement = select(CrawlRunRecord).order_by(CrawlRunRecord.created_at.desc())
+        if hostname:
+            statement = statement.where(CrawlRunRecord.hostname == hostname)
+        with Session(self.engine) as session:
+            rows = session.exec(statement.limit(limit)).all()
+        return [self._to_run(row) for row in rows]
+
+    def create_work_item(self, item: WorkItem) -> WorkItem:
+        record = WorkItemRecord(
+            id=item.id,
+            run_id=item.run_id,
+            stage=item.stage.value,
+            state=item.state.value,
+            url=item.url,
+            attempt_count=item.attempt_count,
+            last_error=item.last_error,
+            priority=item.priority,
+            extra_data=json.dumps(item.metadata),
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+        with Session(self.engine) as session:
+            session.add(record)
+            session.commit()
+        return item
+
+    def update_work_item(self, item: WorkItem) -> WorkItem:
+        with Session(self.engine) as session:
+            record = session.get(WorkItemRecord, item.id)
+            if record is None:
+                return self.create_work_item(item)
+            previous_state = record.state
+            record.state = item.state.value
+            record.attempt_count = item.attempt_count
+            record.last_error = item.last_error
+            record.updated_at = item.updated_at
+            record.extra_data = json.dumps(item.metadata)
+            session.add(record)
+            if previous_state != record.state:
+                session.add(
+                    WorkItemEventRecord(
+                        id=UUID(int=item.id.int ^ item.updated_at.microsecond),
+                        work_item_id=item.id,
+                        from_state=previous_state,
+                        to_state=record.state,
+                    )
+                )
+            session.commit()
+        return item
+
+    def list_work_items(self, run_id: UUID) -> list[WorkItem]:
+        statement = (
+            select(WorkItemRecord)
+            .where(WorkItemRecord.run_id == run_id)
+            .order_by(WorkItemRecord.created_at.asc())
+        )
+        with Session(self.engine) as session:
+            rows = session.exec(statement).all()
         return [
-            CrawlRun(
-                id=record.id,
-                target=WebsiteTarget(url=record.url, hostname=record.hostname),
-                status=CrawlStatus(record.status),
-                strategy_attempts=[x for x in record.strategy_attempts.split(",") if x],
-                diagnostics={"raw": record.diagnostics},
+            WorkItem(
+                id=row.id,
+                run_id=row.run_id,
+                stage=WorkStage(row.stage),
+                state=WorkItemState(row.state),
+                url=row.url,
+                attempt_count=row.attempt_count,
+                last_error=row.last_error,
+                priority=row.priority,
+                metadata=json.loads(row.extra_data),
+                created_at=row.created_at,
+                updated_at=row.updated_at,
             )
-            for record in records
+            for row in rows
         ]
 
-    def strategy_history(self, hostname: str) -> list[str]:
+    def add_discovered_urls(
+        self, run_id: UUID, urls: list[tuple[str, str]]
+    ) -> list[str]:
         with Session(self.engine) as session:
-            statement = (
-                select(CrawlRunRecord)
-                .where(CrawlRunRecord.hostname == hostname)
-                .where(CrawlRunRecord.status == CrawlStatus.succeeded.value)
-                .order_by(CrawlRunRecord.created_at.desc())
+            existing = {
+                row.url
+                for row in session.exec(
+                    select(DiscoveredUrlRecord).where(
+                        DiscoveredUrlRecord.run_id == run_id
+                    )
+                ).all()
+            }
+            inserted: list[str] = []
+            for url, provenance in urls:
+                if url in existing:
+                    continue
+                inserted.append(url)
+                session.add(
+                    DiscoveredUrlRecord(
+                        id=UUID(int=hash((run_id, url)) & ((1 << 128) - 1)),
+                        run_id=run_id,
+                        url=url,
+                        provenance=provenance,
+                    )
+                )
+            session.commit()
+        return inserted
+
+    def get_discovered_urls(self, run_id: UUID) -> list[tuple[str, str]]:
+        with Session(self.engine) as session:
+            rows = session.exec(
+                select(DiscoveredUrlRecord).where(DiscoveredUrlRecord.run_id == run_id)
+            ).all()
+        return [(row.url, row.provenance) for row in rows]
+
+    def upsert_extracted_pages(self, pages: list[ExtractedPage]) -> None:
+        with Session(self.engine) as session:
+            for page in pages:
+                rows = session.exec(
+                    select(ExtractedPageRecord)
+                    .where(ExtractedPageRecord.run_id == page.run_id)
+                    .where(ExtractedPageRecord.url == page.url)
+                ).all()
+                if rows:
+                    record = rows[0]
+                    record.title = page.title
+                    record.description = page.description
+                    record.provenance = json.dumps(page.provenance)
+                    record.confidence = json.dumps(page.confidence)
+                    session.add(record)
+                    continue
+                session.add(
+                    ExtractedPageRecord(
+                        id=UUID(int=hash((page.run_id, page.url)) & ((1 << 128) - 1)),
+                        run_id=page.run_id,
+                        url=page.url,
+                        title=page.title,
+                        description=page.description,
+                        provenance=json.dumps(page.provenance),
+                        confidence=json.dumps(page.confidence),
+                    )
+                )
+            session.commit()
+
+    def get_extracted_pages(self, run_id: UUID) -> list[ExtractedPage]:
+        with Session(self.engine) as session:
+            rows = session.exec(
+                select(ExtractedPageRecord).where(ExtractedPageRecord.run_id == run_id)
+            ).all()
+        return [
+            ExtractedPage(
+                run_id=row.run_id,
+                url=row.url,
+                title=row.title,
+                description=row.description,
+                provenance=json.loads(row.provenance),
+                confidence=json.loads(row.confidence),
             )
-            records = session.exec(statement).all()
-        ordered: list[str] = []
-        for record in records:
-            for attempt in record.strategy_attempts.split(","):
-                if attempt and attempt not in ordered:
-                    ordered.append(attempt)
-        return ordered
+            for row in rows
+        ]
+
+    def set_validator(
+        self, url: str, etag: str | None, last_modified: str | None
+    ) -> None:
+        with Session(self.engine) as session:
+            row = session.get(UrlValidatorRecord, url)
+            if row is None:
+                row = UrlValidatorRecord(url=url)
+            row.etag = etag
+            row.last_modified = last_modified
+            session.add(row)
+            session.commit()
+
+    def get_validator(self, url: str) -> tuple[str | None, str | None]:
+        with Session(self.engine) as session:
+            row = session.get(UrlValidatorRecord, url)
+            if row is None:
+                return None, None
+            return row.etag, row.last_modified
+
+    def save_artifact(self, artifact: GenerationArtifact) -> None:
+        with Session(self.engine) as session:
+            row = ArtifactRecord(
+                run_id=artifact.run_id,
+                llms_txt=artifact.llms_txt,
+                generated_at=artifact.generated_at,
+            )
+            session.merge(row)
+            session.commit()
+
+    def get_artifact(self, run_id: UUID) -> GenerationArtifact | None:
+        with Session(self.engine) as session:
+            row = session.get(ArtifactRecord, run_id)
+            if row is None:
+                return None
+        return GenerationArtifact(
+            run_id=row.run_id, llms_txt=row.llms_txt, generated_at=row.generated_at
+        )
+
+    @staticmethod
+    def _to_run(record: CrawlRunRecord) -> CrawlRun:
+        return CrawlRun(
+            id=record.id,
+            target_url=record.target_url,
+            hostname=record.hostname,
+            status=RunStatus(record.status),
+            score=record.score,
+            score_breakdown=json.loads(record.score_breakdown),
+            artifact_path=record.artifact_path,
+            notes=json.loads(record.notes),
+            created_at=record.created_at,
+            completed_at=record.completed_at,
+        )
 
 
-def default_repository() -> SqliteCrawlRunRepository:
-    db_path = Path("./crawllmer.db")
-    return SqliteCrawlRunRepository(f"sqlite:///{db_path}")
+def default_repository(
+    db_url: str = "sqlite:///./crawllmer.db",
+) -> SqliteCrawlRepository:
+    return SqliteCrawlRepository(db_url=db_url)

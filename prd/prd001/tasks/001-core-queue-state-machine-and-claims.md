@@ -2,7 +2,7 @@
 id: PRD-001-TASK-001
 prd: PRD-001-ADDENDUM-A
 title: Core queue contracts and minimal run/work-item persistence
-status: pending
+status: complete
 owner: platform-engineering
 created: 2026-02-25
 ---
@@ -45,3 +45,8 @@ All pipeline stages depend on consistent run/work-item schemas and status transi
 ## Validation
 - Unit tests for model validation and transition rules.
 - Repository round-trip tests.
+
+
+## Implementation Notes
+- Implemented core run/work-item enums, transition guards, SQLModel persistence for crawl_runs/work_items/work_item_events, and repository contracts in domain ports with sqlite adapter.
+- Updated during implementation pass for PRD001 end-to-end pipeline delivery.

@@ -1,36 +1,22 @@
 from __future__ import annotations
 
-from urllib.parse import urlparse
+import os
 
 from crawllmer.adapters.storage import default_repository
-from crawllmer.adapters.strategies import (
-    BrowserAssistedStrategy,
-    DirectLlmsTxtStrategy,
-    MetadataExtractionStrategy,
-    RobotsHintStrategy,
-    WebArchiveAssistStrategy,
+from crawllmer.application.orchestrator import CrawlPipeline
+from crawllmer.application.queueing import CeleryQueuePublisher
+
+DB_URL = os.getenv("CRAWLLMER_DB_URL", "sqlite:///./crawllmer.db")
+CELERY_BROKER_URL = os.getenv(
+    "CRAWLLMER_CELERY_BROKER_URL", "sqla+sqlite:///./celery-broker.db"
 )
-from crawllmer.application.orchestrator import CrawlOrchestrator
-from crawllmer.domain.models import StrategyResult, WebsiteTarget
-
-repo = default_repository()
-orchestrator = CrawlOrchestrator(
-    strategies=[
-        DirectLlmsTxtStrategy(),
-        RobotsHintStrategy(),
-        MetadataExtractionStrategy(),
-        BrowserAssistedStrategy(),
-        WebArchiveAssistStrategy(),
-    ],
-    repository=repo,
+CELERY_RESULT_BACKEND = os.getenv(
+    "CRAWLLMER_CELERY_RESULT_BACKEND", "db+sqlite:///./celery-results.db"
 )
-LATEST: dict[str, str] = {}
 
-
-def run_crawl(url: str):
-    parsed = urlparse(url)
-    target = WebsiteTarget(url=url, hostname=parsed.hostname or "")
-    run, result = orchestrator.process(target)
-    if result and isinstance(result, StrategyResult) and result.document:
-        LATEST[str(run.id)] = result.document.to_text()
-    return run, result
+repo = default_repository(db_url=DB_URL)
+queue = CeleryQueuePublisher(
+    broker_url=CELERY_BROKER_URL,
+    result_backend=CELERY_RESULT_BACKEND,
+)
+pipeline = CrawlPipeline(repository=repo, queue=queue)

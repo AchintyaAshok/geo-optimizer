@@ -2,7 +2,7 @@
 id: PRD-001-TASK-007
 prd: PRD-001-ADDENDUM-A
 title: Async scheduler and host-aware rate limiting
-status: pending
+status: complete
 owner: platform-engineering
 created: 2026-02-25
 ---
@@ -42,3 +42,8 @@ Improves p95 crawl performance while reducing host bans and transient failures.
 ## Validation
 - Load/integration tests with simulated 429/5xx responses.
 - Worker concurrency tests across multiple processes.
+
+
+## Implementation Notes
+- Added host-aware rate limiter, retry policy integration, and stage processing orchestration with queued->processing->completed transitions.
+- Updated during implementation pass for PRD001 end-to-end pipeline delivery.
