@@ -4,71 +4,166 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from urllib.parse import urljoin, urlparse
+from uuid import uuid4
 
 import httpx
 from bs4 import BeautifulSoup
 
-from crawllmer.domain.models import ExtractedPage
+from crawllmer.domain.models import (
+    DiscoverySource,
+    ExtractedPage,
+    LlmsTxtDocument,
+    LlmsTxtEntry,
+    SitemapDocument,
+    SitemapUrl,
+    StrategyInput,
+    StrategyOutput,
+    WebsiteTarget,
+)
 
 
 def discover_urls(
-    target_url: str, client: httpx.Client | None = None
+    target_url: str,
+    client: httpx.Client | None = None,
 ) -> list[tuple[str, str]]:
-    parsed = urlparse(target_url)
-    base = f"{parsed.scheme}://{parsed.netloc}"
-    found: list[tuple[str, str]] = []
+    """Run hierarchical discovery strategies and return deduplicated URL candidates.
+
+    Strategy order follows PRD guidance:
+    1) direct llms probe,
+    2) robots hints,
+    3) sitemap traversal,
+    4) bounded fallback seed.
+    """
+    target = WebsiteTarget(url=target_url, hostname=urlparse(target_url).netloc)
+    context = StrategyInput(target=target, run_id=uuid4())
     requester = client or httpx.Client(timeout=8.0)
 
-    llms = requester.get(f"{base}/llms.txt")
-    if llms.status_code == 200:
-        for line in llms.text.splitlines():
-            match = re.search(r"\[[^\]]+\]\(([^\)]+)\)", line)
-            if match:
-                found.append((urljoin(base, match.group(1)), "llms"))
+    outputs: list[StrategyOutput] = [
+        _direct_llms_strategy(context, requester),
+        _robots_hints_strategy(context, requester),
+    ]
 
-    robots = requester.get(f"{base}/robots.txt")
-    if robots.status_code == 200:
-        for line in robots.text.splitlines():
-            lower = line.lower()
-            if lower.startswith("sitemap:"):
-                found.extend(parse_sitemap(requester, line.split(":", 1)[1].strip()))
-            if lower.startswith("llms:"):
-                found.append((urljoin(base, line.split(":", 1)[1].strip()), "robots"))
+    discovered = _collect_discovered(outputs)
+    if not discovered:
+        sitemap_output = _sitemap_strategy(context, requester)
+        outputs.append(sitemap_output)
+        discovered = _collect_discovered(outputs)
 
-    if not found:
-        sitemap = requester.get(f"{base}/sitemap.xml")
-        if sitemap.status_code == 200:
-            found.extend(parse_sitemap(requester, f"{base}/sitemap.xml"))
-
-    if not found:
-        found.append((target_url, "crawl"))
+    if not discovered:
+        outputs.append(_fallback_seed_strategy(context))
+        discovered = _collect_discovered(outputs)
 
     deduped: dict[str, str] = {}
-    for url, source in found:
-        deduped.setdefault(url, source)
+    for url, source in discovered:
+        deduped.setdefault(str(url), source.value)
     return list(deduped.items())
 
 
-def parse_sitemap(client: httpx.Client, sitemap_url: str) -> list[tuple[str, str]]:
+def _direct_llms_strategy(
+    context: StrategyInput, requester: httpx.Client
+) -> StrategyOutput:
+    base = f"{context.target.url.scheme}://{context.target.hostname}"
+    llms = requester.get(f"{base}/llms.txt")
+    if llms.status_code != 200:
+        return StrategyOutput(
+            strategy_id="direct_llms",
+            success=False,
+            diagnostics={"status_code": llms.status_code},
+        )
+
+    found: list[tuple[str, DiscoverySource]] = []
+    for line in llms.text.splitlines():
+        match = re.search(r"\[[^\]]+\]\(([^\)]+)\)", line)
+        if match:
+            found.append((urljoin(base, match.group(1)), DiscoverySource.llms))
+    return StrategyOutput(
+        strategy_id="direct_llms", success=bool(found), discovered=found
+    )
+
+
+def _robots_hints_strategy(
+    context: StrategyInput, requester: httpx.Client
+) -> StrategyOutput:
+    base = f"{context.target.url.scheme}://{context.target.hostname}"
+    robots = requester.get(f"{base}/robots.txt")
+    if robots.status_code != 200:
+        return StrategyOutput(
+            strategy_id="robots_hints",
+            success=False,
+            diagnostics={"status_code": robots.status_code},
+        )
+
+    discovered: list[tuple[str, DiscoverySource]] = []
+    for line in robots.text.splitlines():
+        lower = line.lower()
+        if lower.startswith("llms:"):
+            discovered.append(
+                (urljoin(base, line.split(":", 1)[1].strip()), DiscoverySource.robots)
+            )
+        if lower.startswith("sitemap:"):
+            sitemap_url = line.split(":", 1)[1].strip()
+            parsed = parse_sitemap(requester, sitemap_url)
+            discovered.extend(
+                (str(url.loc), DiscoverySource.sitemap) for url in parsed.urls
+            )
+    return StrategyOutput(
+        strategy_id="robots_hints",
+        success=bool(discovered),
+        discovered=discovered,
+    )
+
+
+def _sitemap_strategy(
+    context: StrategyInput, requester: httpx.Client
+) -> StrategyOutput:
+    base = f"{context.target.url.scheme}://{context.target.hostname}"
+    parsed = parse_sitemap(requester, f"{base}/sitemap.xml")
+    discovered = [(str(url.loc), DiscoverySource.sitemap) for url in parsed.urls]
+    return StrategyOutput(
+        strategy_id="sitemap", success=bool(discovered), discovered=discovered
+    )
+
+
+def _fallback_seed_strategy(context: StrategyInput) -> StrategyOutput:
+    return StrategyOutput(
+        strategy_id="fallback_seed",
+        success=True,
+        discovered=[(str(context.target.url), DiscoverySource.crawl)],
+    )
+
+
+def _collect_discovered(
+    outputs: list[StrategyOutput],
+) -> list[tuple[str, DiscoverySource]]:
+    discovered: list[tuple[str, DiscoverySource]] = []
+    for output in outputs:
+        discovered.extend(output.discovered)
+    return discovered
+
+
+def parse_sitemap(client: httpx.Client, sitemap_url: str) -> SitemapDocument:
+    """Parse sitemap index or urlset recursively into a typed sitemap document."""
     response = client.get(sitemap_url)
     if response.status_code != 200:
-        return []
+        return SitemapDocument()
 
     root = ET.fromstring(response.text)
     namespace = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
-    discovered: list[tuple[str, str]] = []
+    document = SitemapDocument()
 
     for child in root.findall(f"{namespace}sitemap"):
         loc = child.find(f"{namespace}loc")
         if loc is not None and loc.text:
-            discovered.extend(parse_sitemap(client, loc.text.strip()))
+            child_doc = parse_sitemap(client, loc.text.strip())
+            document.children.append(loc.text.strip())
+            document.urls.extend(child_doc.urls)
 
     for child in root.findall(f"{namespace}url"):
         loc = child.find(f"{namespace}loc")
         if loc is not None and loc.text:
-            discovered.append((loc.text.strip(), "sitemap"))
+            document.urls.append(SitemapUrl(loc=loc.text.strip()))
 
-    return discovered
+    return document
 
 
 def extract_metadata(
@@ -244,11 +339,15 @@ def score_pages(pages: list[ExtractedPage]) -> dict[str, float]:
 
 
 def generate_llms_txt(hostname: str, pages: list[ExtractedPage]) -> str:
-    lines = [f"# llms.txt for {hostname}", ""]
-    for page in sorted(pages, key=lambda p: p.url):
-        title = page.title or page.url
-        entry = f"- [{title}]({page.url})"
-        if page.description:
-            entry += f": {page.description}"
-        lines.append(entry)
-    return "\n".join(lines).strip() + "\n"
+    document = LlmsTxtDocument(
+        source_url=f"https://{hostname}",
+        entries=[
+            LlmsTxtEntry(
+                title=(page.title or page.url),
+                url=page.url,
+                description=page.description,
+            )
+            for page in pages
+        ],
+    )
+    return document.to_text()

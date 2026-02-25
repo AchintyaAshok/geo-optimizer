@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 from uuid import UUID
@@ -25,7 +27,21 @@ from crawllmer.domain.models import (
 from crawllmer.domain.ports import CrawlRepository, QueuePublisher
 
 
+@dataclass(slots=True)
+class StageExecution:
+    """A configured stage callable that mutates run/repository state."""
+
+    stage: WorkStage
+    execute: Callable[[CrawlRun], None]
+
+
 class CrawlPipeline:
+    """Coordinates crawl run lifecycle and stage execution.
+
+    The pipeline builds a sequence of stage executions from run context and
+    executes them in order while applying retries, telemetry and state updates.
+    """
+
     def __init__(
         self,
         repository: CrawlRepository,
@@ -41,6 +57,7 @@ class CrawlPipeline:
         self.telemetry = telemetry or PipelineTelemetry()
 
     def enqueue_run(self, url: str) -> CrawlRun:
+        """Validate input URL, persist queued run/work-item, and publish task."""
         parsed = urlparse(url)
         if not parsed.scheme or not parsed.netloc:
             raise ValueError("invalid URL")
@@ -62,6 +79,7 @@ class CrawlPipeline:
         return run
 
     def process_run(self, run_id: UUID) -> CrawlRun:
+        """Load a run and execute the registered stage plan for that run."""
         run = self.repository.get_run(run_id)
         if run is None:
             raise ValueError("run not found")
@@ -70,63 +88,10 @@ class CrawlPipeline:
             run.status = RunStatus.running
             self.repository.update_run(run)
             log_event("pipeline.run.start", run_id=run.id, target_url=run.target_url)
-
             try:
                 self.rate_limiter.wait(run.hostname)
-
-                discovered = self._run_stage(
-                    run=run,
-                    stage=WorkStage.discovery,
-                    fn=lambda: self.retry.run(lambda: discover_urls(run.target_url)),
-                )
-                self.repository.add_discovered_urls(run.id, discovered)
-
-                validators = {
-                    url: self.repository.get_validator(url)
-                    for url, _ in self.repository.get_discovered_urls(run.id)
-                }
-                pages, new_validators = self._run_stage(
-                    run=run,
-                    stage=WorkStage.extraction,
-                    fn=lambda: self.retry.run(
-                        lambda: extract_metadata(
-                            run.id,
-                            self.repository.get_discovered_urls(run.id),
-                            validators,
-                        )
-                    ),
-                )
-                self.repository.upsert_extracted_pages(pages)
-                for url, (etag, last_modified) in new_validators.items():
-                    self.repository.set_validator(url, etag, last_modified)
-
-                canonical_pages = self._run_stage(
-                    run=run,
-                    stage=WorkStage.canonicalization,
-                    fn=lambda: canonicalize_and_dedup(
-                        self.repository.get_extracted_pages(run.id)
-                    ),
-                )
-                self.repository.upsert_extracted_pages(canonical_pages)
-
-                score = self._run_stage(
-                    run=run,
-                    stage=WorkStage.scoring,
-                    fn=lambda: score_pages(canonical_pages),
-                )
-                run.score = score["total"]
-                run.score_breakdown = score
-
-                llms_txt = self._run_stage(
-                    run=run,
-                    stage=WorkStage.generation,
-                    fn=lambda: generate_llms_txt(run.hostname, canonical_pages),
-                )
-                self.repository.save_artifact(
-                    GenerationArtifact(run_id=run.id, llms_txt=llms_txt)
-                )
-
-                run.artifact_path = f"artifact:{run.id}"
+                for stage_execution in self._build_stage_plan(run):
+                    self._run_stage(run, stage_execution)
                 run.completed_at = datetime.now(UTC)
                 run.status = RunStatus.completed
                 self.repository.update_run(run)
@@ -142,17 +107,71 @@ class CrawlPipeline:
                 log_event("pipeline.run.failed", run_id=run.id, error=str(exc))
                 raise
 
-    def _run_stage(self, run: CrawlRun, stage: WorkStage, fn):
-        item = self._new_item(run.id, stage, run.target_url)
+    def _build_stage_plan(self, run: CrawlRun) -> list[StageExecution]:
+        """Create ordered stage plan from current run context."""
+
+        def run_discovery(current_run: CrawlRun) -> None:
+            discovered = self.retry.run(lambda: discover_urls(current_run.target_url))
+            self.repository.add_discovered_urls(current_run.id, discovered)
+
+        def run_extraction(current_run: CrawlRun) -> None:
+            validators = {
+                url: self.repository.get_validator(url)
+                for url, _ in self.repository.get_discovered_urls(current_run.id)
+            }
+            pages, new_validators = self.retry.run(
+                lambda: extract_metadata(
+                    current_run.id,
+                    self.repository.get_discovered_urls(current_run.id),
+                    validators,
+                )
+            )
+            self.repository.upsert_extracted_pages(pages)
+            for url, (etag, last_modified) in new_validators.items():
+                self.repository.set_validator(url, etag, last_modified)
+
+        def run_canonicalization(current_run: CrawlRun) -> None:
+            canonical_pages = canonicalize_and_dedup(
+                self.repository.get_extracted_pages(current_run.id)
+            )
+            self.repository.upsert_extracted_pages(canonical_pages)
+
+        def run_scoring(current_run: CrawlRun) -> None:
+            pages = self.repository.get_extracted_pages(current_run.id)
+            score = score_pages(pages)
+            current_run.score = score["total"]
+            current_run.score_breakdown = score
+            self.repository.update_run(current_run)
+
+        def run_generation(current_run: CrawlRun) -> None:
+            pages = self.repository.get_extracted_pages(current_run.id)
+            llms_txt = generate_llms_txt(current_run.hostname, pages)
+            self.repository.save_artifact(
+                GenerationArtifact(run_id=current_run.id, llms_txt=llms_txt)
+            )
+            current_run.artifact_path = f"artifact:{current_run.id}"
+            self.repository.update_run(current_run)
+
+        return [
+            StageExecution(WorkStage.discovery, run_discovery),
+            StageExecution(WorkStage.extraction, run_extraction),
+            StageExecution(WorkStage.canonicalization, run_canonicalization),
+            StageExecution(WorkStage.scoring, run_scoring),
+            StageExecution(WorkStage.generation, run_generation),
+        ]
+
+    def _run_stage(self, run: CrawlRun, stage_execution: StageExecution) -> None:
+        """Execute a single stage with work-item + telemetry transition handling."""
+        item = self._new_item(run.id, stage_execution.stage, run.target_url)
+        stage = stage_execution.stage
         with self.telemetry.stage_span(str(run.id), stage.value) as span:
             log_event("pipeline.stage.start", run_id=run.id, stage=stage.value)
             try:
-                result = fn()
+                stage_execution.execute(run)
                 self._complete_item(item)
                 self.telemetry.record_stage_outcome(stage.value, "success")
                 span.set_attribute("stage.outcome", "success")
                 log_event("pipeline.stage.completed", run_id=run.id, stage=stage.value)
-                return result
             except Exception as exc:  # noqa: BLE001
                 self._fail_item(item, str(exc))
                 self.telemetry.record_stage_outcome(stage.value, "failure")
@@ -166,6 +185,7 @@ class CrawlPipeline:
                 raise
 
     def _new_item(self, run_id: UUID, stage: WorkStage, url: str) -> WorkItem:
+        """Create and transition a work item into processing state."""
         item = WorkItem(run_id=run_id, stage=stage, url=url)
         self.repository.create_work_item(item)
         self.telemetry.track_state_transition(None, WorkItemState.queued.value)
@@ -177,12 +197,14 @@ class CrawlPipeline:
         return item
 
     def _complete_item(self, item: WorkItem) -> None:
+        """Transition work item to completed."""
         previous = item.state.value
         item.transition(WorkItemState.completed)
         self.repository.update_work_item(item)
         self.telemetry.track_state_transition(previous, WorkItemState.completed.value)
 
     def _fail_item(self, item: WorkItem, error: str) -> None:
+        """Transition work item to failed and attach failure reason."""
         previous = item.state.value
         item.last_error = error
         item.transition(WorkItemState.failed)
