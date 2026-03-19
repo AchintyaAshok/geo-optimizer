@@ -7,6 +7,7 @@ from uuid import UUID
 import streamlit as st
 
 from crawllmer.domain.models import (
+    CrawlEvent,
     CrawlRun,
     RunStatus,
     WorkItem,
@@ -126,6 +127,28 @@ st.markdown(
     /* ---- detail panel ---- */
     .detail-header {
         font-size: 1.4rem; font-weight: 700; margin-bottom: 4px;
+    }
+    /* ---- live events ---- */
+    .ev-row {
+        display: flex; align-items: baseline; gap: 8px;
+        padding: 3px 0; font-size: .8rem;
+        border-bottom: 1px solid rgba(128,128,128,.08);
+        font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .ev-time { color: #6b7280; min-width: 55px; }
+    .ev-name { font-weight: 600; }
+    .ev-sys  { color: #9ca3af; font-size: .75rem; }
+    .ev-dur  { color: #6b7280; min-width: 50px; text-align: right; }
+    .ev-meta { color: #9ca3af; font-size: .75rem; }
+    .ev-live-dot {
+        display: inline-block; width: 6px; height: 6px;
+        border-radius: 50%; background: #3b82f6;
+        animation: pulse 1.5s infinite;
+        margin-right: 4px; vertical-align: middle;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
     }
     </style>
     """,
@@ -297,6 +320,56 @@ def _render_timeline(items: list[WorkItem]) -> None:
         )
 
 
+def _render_events(events: list[CrawlEvent], *, is_active: bool) -> None:
+    """Render a list of crawl events as a compact log."""
+    if not events:
+        if is_active:
+            st.caption("Waiting for events...")
+        return
+
+    header = "Live events" if is_active else "Events"
+    dot = '<span class="ev-live-dot"></span>' if is_active else ""
+    st.markdown(
+        f"<p style='font-size:.85rem; color:#9ca3af;'>"
+        f"{dot}{header} ({len(events)})</p>",
+        unsafe_allow_html=True,
+    )
+
+    # Show most recent events first, cap display at 50
+    display = list(reversed(events[-50:]))
+    rows: list[str] = []
+    for ev in display:
+        ts = ev.started_at
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        time_str = ts.strftime("%H:%M:%S")
+
+        dur_str = ""
+        if ev.duration is not None:
+            ms = int(ev.duration * 1000)
+            dur_str = f"{ms}ms" if ms < 1000 else f"{ms / 1000:.1f}s"
+
+        meta_parts: list[str] = []
+        for k, v in ev.metadata.items():
+            val = str(v)
+            if len(val) > 60:
+                val = val[:57] + "..."
+            meta_parts.append(f"{k}={val}")
+        meta_str = " ".join(meta_parts)
+
+        rows.append(
+            '<div class="ev-row">'
+            f'<span class="ev-time">{time_str}</span>'
+            f'<span class="ev-name">{ev.name}</span>'
+            f'<span class="ev-sys">{ev.system}</span>'
+            f'<span class="ev-dur">{dur_str}</span>'
+            f'<span class="ev-meta">{meta_str}</span>'
+            "</div>"
+        )
+
+    st.markdown("\n".join(rows), unsafe_allow_html=True)
+
+
 def _render_llms_txt(artifact_text: str, run_id_str: str) -> None:
     """Render llms.txt with stats, truncation for large files."""
     lines = artifact_text.splitlines()
@@ -406,6 +479,13 @@ def _render_detail_panel(run_id_str: str) -> None:
     st.markdown("---")
     st.caption("Pipeline timeline")
     _render_timeline(items)
+
+    # Events
+    is_active = run.status in (RunStatus.queued, RunStatus.running)
+    events = repo.list_events(UUID(run_id_str))
+    if events or is_active:
+        st.markdown("---")
+        _render_events(events, is_active=is_active)
 
 
 # ---------------------------------------------------------------------------
