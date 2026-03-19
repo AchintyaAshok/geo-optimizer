@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 from uuid import UUID
 
+from opentelemetry import trace
+
 from crawllmer.application.observability import PipelineTelemetry, log_event
 from crawllmer.application.retry import RetryPolicy
 from crawllmer.application.scheduler import HostRateLimiter
@@ -113,6 +115,11 @@ class CrawlPipeline:
         def run_discovery(current_run: CrawlRun) -> None:
             discovered = self.retry.run(lambda: discover_urls(current_run.target_url))
             self.repository.add_discovered_urls(current_run.id, discovered)
+            span = trace.get_current_span()
+            span.add_event(
+                "pages.discovered",
+                {"url_count": len(discovered), "target_url": current_run.target_url},
+            )
 
         def run_extraction(current_run: CrawlRun) -> None:
             validators = {
@@ -129,6 +136,11 @@ class CrawlPipeline:
             self.repository.upsert_extracted_pages(pages)
             for url, (etag, last_modified) in new_validators.items():
                 self.repository.set_validator(url, etag, last_modified)
+            span = trace.get_current_span()
+            span.add_event(
+                "metadata.extracted",
+                {"page_count": len(pages), "run_id": str(current_run.id)},
+            )
 
         def run_canonicalization(current_run: CrawlRun) -> None:
             canonical_pages = canonicalize_and_dedup(
@@ -151,6 +163,11 @@ class CrawlPipeline:
             )
             current_run.artifact_path = f"artifact:{current_run.id}"
             self.repository.update_run(current_run)
+            span = trace.get_current_span()
+            span.add_event(
+                "llms_txt.generated",
+                {"entry_count": len(pages), "byte_size": len(llms_txt.encode())},
+            )
 
         return [
             StageExecution(WorkStage.discovery, run_discovery),
@@ -194,6 +211,11 @@ class CrawlPipeline:
         item.attempt_count += 1
         self.repository.update_work_item(item)
         self.telemetry.track_state_transition(previous, WorkItemState.processing.value)
+        span = trace.get_current_span()
+        span.add_event(
+            "work_item.state_transition",
+            {"from_state": previous, "to_state": "processing", "stage": stage.value},
+        )
         return item
 
     def _complete_item(self, item: WorkItem) -> None:
