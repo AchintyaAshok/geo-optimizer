@@ -1,22 +1,15 @@
 from __future__ import annotations
 
-import os
-
 from crawllmer.adapters.storage import default_repository
 from crawllmer.application.orchestrator import CrawlPipeline
 from crawllmer.application.queueing import CeleryQueuePublisher
+from crawllmer.config import get_settings
 
-DB_URL = os.getenv("CRAWLLMER_DB_URL", "sqlite:///./crawllmer.db")
-CELERY_BROKER_URL = os.getenv(
-    "CRAWLLMER_CELERY_BROKER_URL", "sqla+sqlite:///./celery-broker.db"
-)
-CELERY_RESULT_BACKEND = os.getenv(
-    "CRAWLLMER_CELERY_RESULT_BACKEND", "db+sqlite:///./celery-results.db"
-)
+_settings = get_settings()
 
-repo = default_repository(db_url=DB_URL)
+repo = default_repository(db_url=_settings.db_url)
 queue = CeleryQueuePublisher(
-    broker_url=CELERY_BROKER_URL,
-    result_backend=CELERY_RESULT_BACKEND,
+    broker_url=_settings.celery_broker_url,
+    result_backend=_settings.celery_result_backend,
 )
 pipeline = CrawlPipeline(repository=repo, queue=queue)
