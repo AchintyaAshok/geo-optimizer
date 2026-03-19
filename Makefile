@@ -1,4 +1,4 @@
-.PHONY: sync test lint lint-fix format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart crawl-status help
+.PHONY: sync test lint lint-fix lint-path lint-fix-path format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart crawl-status help
 
 # ─── Setup ───────────────────────────────────────────────────────────────────
 
@@ -15,6 +15,12 @@ lint:  ## Lint code with ruff
 
 lint-fix:  ## Lint and auto-fix (imports, safe fixes)
 	uv run ruff check --fix .
+
+lint-path:  ## Lint specific path(s): make lint-path P="src/crawllmer/core/config.py"
+	uv run ruff check $(P)
+
+lint-fix-path:  ## Lint and auto-fix specific path(s): make lint-fix-path P="src/file.py"
+	uv run ruff check --fix $(P)
 
 format:  ## Auto-format code with ruff
 	uv run ruff format .
