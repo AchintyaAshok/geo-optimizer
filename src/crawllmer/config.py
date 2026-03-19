@@ -7,6 +7,7 @@ singleton ``settings`` object wherever configuration values are needed.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,6 +28,9 @@ class Settings(BaseSettings):
     # ── Celery ────────────────────────────────────────────────────────
     celery_broker_url: str = "sqla+sqlite:///./celery-broker.db"
     celery_result_backend: str = "db+sqlite:///./celery-results.db"
+
+    # ── Logging ───────────────────────────────────────────────────────
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "DEBUG"
 
     # ── Worker ────────────────────────────────────────────────────────
     worker_poll_seconds: int = 2
