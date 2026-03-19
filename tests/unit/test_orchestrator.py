@@ -4,6 +4,7 @@ from uuid import UUID
 
 from crawllmer.adapters.storage import SqliteCrawlRepository
 from crawllmer.application.orchestrator import CrawlPipeline
+from crawllmer.core import RunNotFoundError
 from crawllmer.domain.ports import QueuePublisher
 
 
@@ -104,7 +105,8 @@ def test_pipeline_rejects_unknown_run(tmp_path) -> None:
     unknown = UUID("00000000-0000-0000-0000-000000000000")
     try:
         pipeline.process_run(unknown)
-    except ValueError as exc:
+    except RunNotFoundError as exc:
+        assert exc.run_id == unknown
         assert "run not found" in str(exc)
     else:
-        raise AssertionError("expected ValueError")
+        raise AssertionError("expected RunNotFoundError")

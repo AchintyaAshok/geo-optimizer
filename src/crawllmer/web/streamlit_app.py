@@ -6,6 +6,7 @@ from uuid import UUID
 
 import streamlit as st
 
+from crawllmer.core import InvalidInputError
 from crawllmer.domain.models import (
     CrawlEvent,
     CrawlRun,
@@ -578,7 +579,7 @@ with col_list:
                 st.session_state.active_runs.append(rid)
                 st.session_state.selected_run = rid
                 has_active = True
-            except ValueError as exc:
+            except InvalidInputError as exc:
                 st.error(f"Invalid URL: {exc}")
 
     # --- Run list helper ---
