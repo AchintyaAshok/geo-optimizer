@@ -1,3 +1,3 @@
-from crawllmer.web.app import app
+from crawllmer.app.api.routes import app
 
 __all__ = ["app"]

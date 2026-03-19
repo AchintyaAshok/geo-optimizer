@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from crawllmer.web.app import app
+from crawllmer.app.api.routes import app
 
 
 class FakeResponse:

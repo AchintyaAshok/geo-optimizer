@@ -8,9 +8,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, HttpUrl
 
+from crawllmer.app.web.runtime import pipeline, repo
 from crawllmer.core import InvalidInputError, PipelineProcessingError, RunNotFoundError
 from crawllmer.core.observability import log_event, setup_telemetry
-from crawllmer.web.runtime import pipeline, repo
 
 
 @asynccontextmanager

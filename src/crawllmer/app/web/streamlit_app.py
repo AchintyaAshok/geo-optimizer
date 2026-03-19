@@ -6,6 +6,7 @@ from uuid import UUID
 
 import streamlit as st
 
+from crawllmer.app.web.runtime import pipeline, repo
 from crawllmer.core import InvalidInputError
 from crawllmer.domain.models import (
     CrawlEvent,
@@ -15,7 +16,6 @@ from crawllmer.domain.models import (
     WorkItemState,
     WorkStage,
 )
-from crawllmer.web.runtime import pipeline, repo
 
 # ---------------------------------------------------------------------------
 # Page config
