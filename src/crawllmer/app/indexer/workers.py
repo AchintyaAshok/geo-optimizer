@@ -28,6 +28,7 @@ from crawllmer.domain.models import (
 def discover_urls(
     target_url: str,
     client: httpx.Client | None = None,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> list[tuple[str, str]]:
     """Run hierarchical discovery strategies and return deduplicated URL candidates.
 
@@ -58,10 +59,11 @@ def discover_urls(
     if not discovered:
         # Tier 4: BFS spider — scan the site following links
         settings = get_settings()
-        ranked = spider_scan(target_url, settings, requester)
+        ranked = spider_scan(target_url, settings, requester, on_event=on_event)
+        index_count = min(len(ranked), settings.spider_max_index_pages)
         spider_urls = [
             (url, DiscoverySource.crawl)
-            for url, _inlinks, _depth in ranked[: settings.spider_max_index_pages]
+            for url, _inlinks, _depth in ranked[:index_count]
         ]
         outputs.append(
             StrategyOutput(

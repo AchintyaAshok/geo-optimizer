@@ -159,7 +159,19 @@ class CrawlPipeline:
         """Create ordered stage plan from current run context."""
 
         def run_discovery(current_run: CrawlRun) -> None:
-            discovered = self.retry.run(lambda: discover_urls(current_run.target_url))
+            def on_spider_event(name: str, data: dict) -> None:
+                self.repository.create_event(
+                    CrawlEvent(
+                        run_id=current_run.id,
+                        name=name,
+                        system="spider",
+                        metadata=data,
+                    )
+                )
+
+            discovered = self.retry.run(
+                lambda: discover_urls(current_run.target_url, on_event=on_spider_event)
+            )
             self.repository.add_discovered_urls(current_run.id, discovered)
             strategies = list({source for _, source in discovered})
             event = DiscoveryCompletedEvent(
