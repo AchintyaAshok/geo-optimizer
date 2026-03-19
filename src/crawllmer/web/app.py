@@ -8,9 +8,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, HttpUrl
 
-from crawllmer.application.observability import log_event
-from crawllmer.application.telemetry_setup import setup_telemetry
-from crawllmer.domain.models import RunStatus
+from crawllmer.core import InvalidInputError, PipelineProcessingError, RunNotFoundError
+from crawllmer.core.observability import log_event, setup_telemetry
 from crawllmer.web.runtime import pipeline, repo
 
 
@@ -36,7 +35,7 @@ def health() -> dict[str, str]:
 def crawl_api(payload: CrawlRequest):
     try:
         run = pipeline.enqueue_run(str(payload.url))
-    except ValueError as exc:
+    except InvalidInputError as exc:
         log_event("api.crawl.enqueue.failed", url=str(payload.url), error=str(exc))
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -49,16 +48,11 @@ def crawl_api(payload: CrawlRequest):
 
 @app.post("/api/v1/crawls/{run_id}/process")
 def process_run(run_id: UUID):
-    run = repo.get_run(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="run not found")
-
     try:
         run = pipeline.process_run(run_id)
-    except Exception as exc:  # noqa: BLE001
-        run.status = RunStatus.failed
-        run.notes["processing_error"] = str(exc)
-        repo.update_run(run)
+    except RunNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PipelineProcessingError as exc:
         log_event("api.crawl.process.failed", run_id=run_id, error=str(exc))
         raise HTTPException(status_code=500, detail="processing failed") from exc
 

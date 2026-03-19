@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from celery.signals import worker_init
@@ -7,8 +8,11 @@ from celery.signals import worker_init
 from crawllmer.adapters.storage import default_repository
 from crawllmer.application.orchestrator import CrawlPipeline
 from crawllmer.application.queueing import CeleryQueuePublisher, build_celery_app
-from crawllmer.application.telemetry_setup import setup_telemetry
 from crawllmer.config import get_settings
+from crawllmer.core import PipelineProcessingError
+from crawllmer.core.observability import setup_telemetry
+
+logger = logging.getLogger("crawllmer.celery")
 
 _settings = get_settings()
 
@@ -32,5 +36,14 @@ def process_run_task(run_id: str, work_item_id: str | None = None) -> dict:  # n
         result_backend=_settings.celery_result_backend,
     )
     pipeline = CrawlPipeline(repository=repository, queue=queue)
-    run = pipeline.process_run(UUID(run_id))
+    try:
+        run = pipeline.process_run(UUID(run_id))
+    except PipelineProcessingError as exc:
+        logger.error(
+            "pipeline failed: stage=%s run_id=%s cause=%s",
+            exc.stage,
+            exc.run_id,
+            exc.__cause__,
+        )
+        raise
     return {"run_id": str(run.id), "status": run.status.value}

@@ -8,8 +8,9 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from crawllmer.adapters.storage import SqliteCrawlRepository
-from crawllmer.application.observability import PipelineTelemetry
 from crawllmer.application.orchestrator import CrawlPipeline
+from crawllmer.core import PipelineProcessingError
+from crawllmer.core.observability import PipelineTelemetry
 from crawllmer.domain.models import RunStatus, WorkItemState
 from crawllmer.domain.ports import QueuePublisher
 
@@ -142,6 +143,10 @@ def test_pipeline_happy_path_emits_spans_and_metrics(tmp_path, monkeypatch) -> N
     assert "crawllmer_pipeline_runs_total" in metric_names
     assert "crawllmer_pipeline_stage_duration_seconds" in metric_names
     assert "crawllmer_pipeline_processing_state_count" in metric_names
+    # Business-level metrics
+    assert "crawllmer_pages_indexed_total" in metric_names
+    assert "crawllmer_run_duration_seconds" in metric_names
+    assert "crawllmer_llmstxt_size_bytes" in metric_names
 
 
 def test_pipeline_failure_path_marks_failed_stage_and_run(
@@ -163,10 +168,12 @@ def test_pipeline_failure_path_marks_failed_stage_and_run(
 
     try:
         pipeline.process_run(run.id)
-    except RuntimeError as exc:
-        assert "network failure" in str(exc)
+    except PipelineProcessingError as exc:
+        assert exc.stage == "discovery"
+        assert isinstance(exc.__cause__, RuntimeError)
+        assert "network failure" in str(exc.__cause__)
     else:
-        raise AssertionError("expected RuntimeError")
+        raise AssertionError("expected PipelineProcessingError")
 
     saved = repo.get_run(run.id)
     assert saved is not None

@@ -3,12 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import perf_counter
 from urllib.parse import urlparse
 from uuid import UUID
 
 from opentelemetry import trace
 
-from crawllmer.application.observability import PipelineTelemetry, log_event
 from crawllmer.application.retry import RetryPolicy
 from crawllmer.application.scheduler import HostRateLimiter
 from crawllmer.application.workers import (
@@ -17,6 +17,16 @@ from crawllmer.application.workers import (
     extract_metadata,
     generate_llms_txt,
     score_pages,
+)
+from crawllmer.core import InvalidInputError, PipelineProcessingError, RunNotFoundError
+from crawllmer.core.observability import (
+    BusinessMetrics,
+    DiscoveryCompletedEvent,
+    ExtractionCompletedEvent,
+    GenerationCompletedEvent,
+    PipelineTelemetry,
+    RunCompletedEvent,
+    log_event,
 )
 from crawllmer.domain.models import (
     CrawlEvent,
@@ -52,18 +62,20 @@ class CrawlPipeline:
         retry_policy: RetryPolicy | None = None,
         rate_limiter: HostRateLimiter | None = None,
         telemetry: PipelineTelemetry | None = None,
+        business_metrics: BusinessMetrics | None = None,
     ) -> None:
         self.repository = repository
         self.queue = queue
         self.retry = retry_policy or RetryPolicy()
         self.rate_limiter = rate_limiter or HostRateLimiter()
         self.telemetry = telemetry or PipelineTelemetry()
+        self.business_metrics = business_metrics or BusinessMetrics()
 
     def enqueue_run(self, url: str) -> CrawlRun:
         """Validate input URL, persist queued run/work-item, and publish task."""
         parsed = urlparse(url)
         if not parsed.scheme or not parsed.netloc:
-            raise ValueError("invalid URL")
+            raise InvalidInputError("url", "invalid URL")
 
         run = CrawlRun(target_url=url, hostname=parsed.netloc, status=RunStatus.queued)
         self.repository.create_run(run)
@@ -85,7 +97,7 @@ class CrawlPipeline:
         """Load a run and execute the registered stage plan for that run."""
         run = self.repository.get_run(run_id)
         if run is None:
-            raise ValueError("run not found")
+            raise RunNotFoundError(run_id)
 
         run_event = CrawlEvent(
             run_id=run.id,
@@ -97,6 +109,7 @@ class CrawlPipeline:
             run.status = RunStatus.running
             self.repository.update_run(run)
             log_event("pipeline.run.start", run_id=run.id, target_url=run.target_url)
+            run_start = perf_counter()
             try:
                 self.rate_limiter.wait(run.hostname)
                 for stage_execution in self._build_stage_plan(run):
@@ -105,13 +118,31 @@ class CrawlPipeline:
                 run.status = RunStatus.completed
                 self.repository.update_run(run)
                 self.telemetry.record_run_outcome("success")
-                log_event("pipeline.run.completed", run_id=run.id, score=run.score)
+
+                # Emit business-level event and metrics
+                pages = self.repository.get_extracted_pages(run.id)
+                artifact = self.repository.get_artifact(run.id)
+                llmstxt_size = len(artifact.llms_txt.encode()) if artifact else 0
+                run_completed = RunCompletedEvent(
+                    run_id=run.id,
+                    total_pages_indexed=len(pages),
+                    duration_seconds=perf_counter() - run_start,
+                    llmstxt_size_bytes=llmstxt_size,
+                )
+                self.business_metrics.record_run_completed(run_completed)
+                log_event(
+                    "pipeline.run.completed",
+                    run_id=run.id,
+                    score=run.score,
+                    **run_completed.to_attributes(),
+                )
+
                 run_event.completed_at = datetime.now(UTC)
                 run_event.metadata["outcome"] = "success"
                 run_event.metadata["score"] = run.score
                 self.repository.create_event(run_event)
                 return run
-            except Exception as exc:  # noqa: BLE001
+            except PipelineProcessingError as exc:
                 run.status = RunStatus.failed
                 run.notes["processing_error"] = str(exc)
                 run.completed_at = datetime.now(UTC)
@@ -130,11 +161,15 @@ class CrawlPipeline:
         def run_discovery(current_run: CrawlRun) -> None:
             discovered = self.retry.run(lambda: discover_urls(current_run.target_url))
             self.repository.add_discovered_urls(current_run.id, discovered)
-            span = trace.get_current_span()
-            span.add_event(
-                "pages.discovered",
-                {"url_count": len(discovered), "target_url": current_run.target_url},
+            strategies = list({source for _, source in discovered})
+            event = DiscoveryCompletedEvent(
+                run_id=current_run.id,
+                pages_discovered=len(discovered),
+                strategies_used=strategies,
             )
+            log_event(event.event_name, **event.to_attributes())
+            span = trace.get_current_span()
+            span.add_event("pages.discovered", event.to_attributes())
 
         def run_extraction(current_run: CrawlRun) -> None:
             def on_page_event(name: str, data: dict) -> None:
@@ -170,11 +205,15 @@ class CrawlPipeline:
             self.repository.upsert_extracted_pages(pages)
             for url, (etag, last_modified) in new_validators.items():
                 self.repository.set_validator(url, etag, last_modified)
-            span = trace.get_current_span()
-            span.add_event(
-                "metadata.extracted",
-                {"page_count": len(pages), "run_id": str(current_run.id)},
+            urls_attempted = self.repository.get_discovered_urls(current_run.id)
+            event = ExtractionCompletedEvent(
+                run_id=current_run.id,
+                pages_extracted=len(pages),
+                pages_skipped=len(urls_attempted) - len(pages),
             )
+            log_event(event.event_name, **event.to_attributes())
+            span = trace.get_current_span()
+            span.add_event("metadata.extracted", event.to_attributes())
 
         def run_canonicalization(current_run: CrawlRun) -> None:
             canonical_pages = canonicalize_and_dedup(
@@ -212,11 +251,14 @@ class CrawlPipeline:
             )
             current_run.artifact_path = f"artifact:{current_run.id}"
             self.repository.update_run(current_run)
-            span = trace.get_current_span()
-            span.add_event(
-                "llms_txt.generated",
-                {"entry_count": len(pages), "byte_size": len(llms_txt.encode())},
+            gen_event = GenerationCompletedEvent(
+                run_id=current_run.id,
+                llmstxt_size_bytes=len(llms_txt.encode()),
+                entry_count=len(pages),
             )
+            log_event(gen_event.event_name, **gen_event.to_attributes())
+            span = trace.get_current_span()
+            span.add_event("llms_txt.generated", gen_event.to_attributes())
 
         return [
             StageExecution(WorkStage.discovery, run_discovery),
@@ -258,7 +300,9 @@ class CrawlPipeline:
                 event.completed_at = datetime.now(UTC)
                 event.metadata["outcome"] = "failure"
                 event.metadata["error"] = str(exc)
-                raise
+                raise PipelineProcessingError(
+                    stage=stage.value, run_id=run.id, cause=exc
+                ) from exc
             finally:
                 self.repository.create_event(event)
 

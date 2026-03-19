@@ -73,11 +73,15 @@ def setup_telemetry(service_name: str) -> None:
     set_logger_provider(logger_provider)
 
     # Bridge stdlib logging into OTEL logs pipeline
+    from crawllmer.config import get_settings
+
     handler = LoggingHandler(
         level=logging.NOTSET,
         logger_provider=logger_provider,
     )
-    logging.getLogger("crawllmer").addHandler(handler)
+    logger = logging.getLogger("crawllmer")
+    logger.setLevel(getattr(logging, get_settings().log_level))
+    logger.addHandler(handler)
 
     # Auto-instrumentation
     _instrument()
