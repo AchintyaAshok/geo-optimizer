@@ -50,15 +50,14 @@ Source code lives in `src/crawllmer/`, organised as hexagonal (ports & adapters)
 
 ```
 src/crawllmer/
-├── core/            # Cross-cutting: errors.py (typed exception hierarchy)
-│   └── observability/  # telemetry_setup.py, pipeline_telemetry.py, events.py (structured events + business metrics)
-├── domain/          # models.py (Pydantic/SQLModel), ports.py (abstract interfaces)
-├── application/     # orchestrator.py, workers.py, queueing.py, scheduler.py, retry.py
-├── adapters/        # storage.py (SQLModel/SQLite persistence)
-├── web/             # app.py (FastAPI routes), streamlit_app.py (Streamlit UI), runtime.py (shared bootstrap)
-├── main.py          # FastAPI entrypoint
-├── celery_app.py    # Celery config & task definitions
-└── worker.py        # Celery worker entrypoint (__main__)
+├── core/               # Shared: config, errors, orchestrator, retry, scheduler
+│   └── observability/  # telemetry_setup, pipeline_telemetry, events
+├── domain/             # models.py (Pydantic/SQLModel), ports.py (abstract interfaces)
+├── adapters/           # storage.py (SQLModel/SQLite persistence)
+└── app/                # Three application runtimes
+    ├── api/            # main.py (FastAPI entrypoint), routes.py (endpoints)
+    ├── web/            # streamlit_app.py (Streamlit UI), runtime.py
+    └── indexer/        # app.py (Celery), __main__.py (worker), workers.py, queueing.py
 ```
 
 **Processing pipeline** (Celery tasks): discovery → extraction → canonicalization → scoring → generation
