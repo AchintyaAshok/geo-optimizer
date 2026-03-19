@@ -9,6 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,18 +23,52 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ── Database ──────────────────────────────────────────────────────
+    # ── Storage backend ────────────────────────────────────────────────
+    storage_backend: Literal["sqlite", "pgsql"] = "sqlite"
+
+    # ── SQLite (default) ───────────────────────────────────────────────
     db_url: str = "sqlite:///./crawllmer.db"
 
-    # ── Celery ────────────────────────────────────────────────────────
+    # ── PostgreSQL (required when storage_backend == "pgsql") ──────────
+    pg_host: str | None = None
+    pg_port: int = 5432
+    pg_user: str | None = None
+    pg_password: str | None = None
+    pg_database: str | None = None
+
+    # ── Celery ─────────────────────────────────────────────────────────
     celery_broker_url: str = "sqla+sqlite:///./celery-broker.db"
     celery_result_backend: str = "db+sqlite:///./celery-results.db"
 
-    # ── Logging ───────────────────────────────────────────────────────
+    # ── Logging ────────────────────────────────────────────────────────
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "DEBUG"
 
-    # ── Worker ────────────────────────────────────────────────────────
+    # ── Worker ─────────────────────────────────────────────────────────
     worker_poll_seconds: int = 2
+
+    @model_validator(mode="after")
+    def _validate_storage_config(self) -> Settings:
+        """Ensure Postgres credentials are provided when pgsql is selected."""
+        if self.storage_backend == "pgsql":
+            required = ("pg_host", "pg_user", "pg_password", "pg_database")
+            missing = [f for f in required if getattr(self, f) is None]
+            if missing:
+                env_names = [f"CRAWLLMER_{f.upper()}" for f in missing]
+                raise ValueError(
+                    f"storage_backend='pgsql' requires: {', '.join(env_names)}"
+                )
+            self.db_url = (
+                f"postgresql://{self.pg_user}:{self.pg_password}"
+                f"@{self.pg_host}:{self.pg_port}/{self.pg_database}"
+            )
+        return self
+
+    @property
+    def engine_kwargs(self) -> dict:
+        """Return backend-appropriate SQLAlchemy engine arguments."""
+        if self.storage_backend == "pgsql":
+            return {"pool_pre_ping": True, "pool_size": 5}
+        return {"connect_args": {"check_same_thread": False}}
 
 
 @lru_cache(maxsize=1)
