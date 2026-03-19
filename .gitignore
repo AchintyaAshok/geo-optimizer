@@ -39,3 +39,4 @@ htmlcov/
 # Claude Code worktrees & Playwright
 .claude/worktrees/
 .playwright-mcp/
+tmp/

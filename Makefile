@@ -1,4 +1,4 @@
-.PHONY: sync test lint format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart help
+.PHONY: sync test lint format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart crawl-status help
 
 # ─── Setup ───────────────────────────────────────────────────────────────────
 
@@ -53,6 +53,9 @@ stop:  ## Kill any running API/UI/worker processes
 	@sleep 1
 
 restart: stop clean-db run-dev  ## Stop servers, wipe DBs, and start fresh
+
+crawl-status:  ## Show status of all crawl runs (add -v for events detail)
+	@python3 scripts/check-crawl-status.py $(ARGS)
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 

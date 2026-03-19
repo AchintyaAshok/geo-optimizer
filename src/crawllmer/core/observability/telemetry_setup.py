@@ -29,7 +29,7 @@ def _instrument() -> None:
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.instrumentation.sqlite3 import SQLite3Instrumentor
 
-    FastAPIInstrumentor.instrument(excluded_urls="health")
+    FastAPIInstrumentor().instrument(excluded_urls="health")
     HTTPXClientInstrumentor().instrument()
     CeleryInstrumentor().instrument()
     SQLite3Instrumentor().instrument()

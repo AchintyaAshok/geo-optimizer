@@ -1,4 +1,4 @@
-Run the integration test suite against a live crawllmer instance using Playwright. This command executes the test matrix defined in `docs/integration-test-plan.md`.
+Run the integration test suite against a live crawllmer instance. This command executes the test matrix defined in `docs/integration-test-plan.md`.
 
 ## Prerequisites
 
@@ -10,60 +10,95 @@ make clean-db
 make run-dev
 ```
 
-Wait for all three services (API on :8000, UI on :8501, worker) to be ready. Verify by navigating Playwright to `http://localhost:8501` and confirming the navbar renders with "crawllmer".
+Wait for all three services (API on :8000, UI on :8501, worker) to be ready. Verify with:
+
+```bash
+curl -s http://localhost:8000/health   # → {"status": "ok"}
+```
 
 ## Test Execution
 
-Work through the test matrix in order. For each site:
+### Submitting crawls
 
-### Step 1: Submit the crawl
+Submit crawls via the API. For each test URL:
 
-1. Navigate Playwright to `http://localhost:8501`
-2. Type the test URL into the "Website URL" input field
-3. Click the "Crawl" button
-4. Confirm the run appears in the "ACTIVE" section of the left panel
+```bash
+curl -s -X POST http://localhost:8000/api/v1/crawls \
+  -H 'Content-Type: application/json' \
+  -d '{"url": "https://TARGET_URL"}'
+```
 
-### Step 2: Wait for completion
+This returns `{"run_id": "...", "status": "queued"}`. The worker picks it up automatically.
 
-1. Poll the page — the detail panel on the right should auto-update via `st.rerun()`
-2. Wait until the status badge changes from `running` to `completed` or `failed`
-3. Timeout limits: Category A = 120s, Category B = 60s, Category C = 10s
-4. If the crawl times out, record it as a failure and move to the next test
+You can submit multiple crawls — they queue and process sequentially.
 
-### Step 3: Verify the result
+### Checking status
 
-Check the detail panel for each of these criteria and record pass/fail:
+Use the helper script to check all runs at once:
 
-**For ALL categories:**
-- [ ] Status badge shows expected state (`completed` for A/C, `completed` or `failed` for B)
-- [ ] Pipeline timeline shows all 5 stages with durations
-- [ ] Events section is populated
+```bash
+make crawl-status              # summary table
+make crawl-status ARGS="-v"    # with event detail per run
+```
 
-**For Category A (has llms.txt) — additional checks:**
+Or check a specific run:
+
+```bash
+python3 scripts/check-crawl-status.py <run-id>
+python3 scripts/check-crawl-status.py <run-id> -v
+```
+
+The script exits with:
+- `0` — all runs completed
+- `1` — at least one run failed
+- `2` — at least one run still in progress
+
+### Checking results in detail
+
+For detailed inspection of a completed run:
+
+```bash
+# Get run details (status, score, breakdown)
+curl -s http://localhost:8000/api/v1/crawls/<run-id> | python3 -m json.tool
+
+# Get the generated llms.txt
+curl -s http://localhost:8000/api/v1/crawls/<run-id>/llms.txt
+
+# Get event log
+curl -s http://localhost:8000/api/v1/crawls/<run-id>/events | python3 -m json.tool
+```
+
+### Visual verification (Playwright)
+
+For UI verification, use Playwright to navigate to `http://localhost:8501`:
+1. Click a run in the left panel to see its detail view
+2. Verify stage pills, score metrics, timeline, and llms.txt preview
+3. Take a screenshot with `browser_take_screenshot` for the record
+
+Only use Playwright for visual spot-checks — use the API for bulk status checking.
+
+## Verification Criteria
+
+### For ALL categories:
+- [ ] Run completes (status `completed` or `failed` with clear error)
+- [ ] Events are populated (`/api/v1/crawls/<id>/events` returns entries)
+
+### For Category A (has llms.txt):
 - [ ] Score > 0%
-- [ ] "View llms.txt" expander is present
 - [ ] llms.txt starts with `#` (H1 heading)
-- [ ] llms.txt contains `>` blockquote with "structured overview" prompt text
+- [ ] llms.txt contains `>` blockquote with "structured overview" text
 - [ ] llms.txt contains `**Generated**:`, `**Pages crawled**:`, `**Links discovered**:`
 - [ ] llms.txt contains at least one `##` section heading
 - [ ] llms.txt contains at least one `- [title](url)` link entry
-- [ ] No `## Raw` section exists in the output
+- [ ] No `## Raw` section in the output
 
-**For Category B (sitemap only) — additional checks:**
+### For Category B (sitemap only):
 - [ ] If completed: llms.txt has at least one entry
-- [ ] Events show sitemap or robots discovery (not direct llms)
+- [ ] Events show sitemap or robots discovery strategy
 
-**For Category C (nothing) — additional checks:**
-- [ ] Only 1 page crawled (visible in blockquote metadata)
-- [ ] Generated llms.txt contains exactly one `## Home` section
-
-### Step 4: Record the result
-
-For each test, output a row in this format:
-
-```
-| ID | URL | Status | Score | Pages | Sections | Strategy | Duration | Issues |
-```
+### For Category C (nothing):
+- [ ] Pages crawled = 1 (visible in blockquote)
+- [ ] Only `## Home` section (fallback seed)
 
 ## Test Matrix
 
@@ -99,19 +134,20 @@ Reference: `docs/integration-test-plan.md`
 
 ## Execution Strategy
 
-1. **Start with A1** (`nextjs.org`). If this fails, stop — the environment is broken.
-2. Run remaining A sites (A2-A7). A2 (nuxt.com) is slow; start it and move to A3-A7 while waiting if possible.
-3. Run B sites (B1-B4). These test the sitemap fallback path.
-4. Run C sites (C1-C2). These test the final fallback.
-5. Compile the results table and report any failures.
+1. **Submit A1 first** (`nextjs.org`). Check status. If it fails, stop — environment is broken.
+2. Submit remaining A sites, B sites, and C sites via the API.
+3. Wait 2-3 minutes, then run `make crawl-status ARGS="-v"` to check all at once.
+4. For any still running, wait and re-check.
+5. For completed runs, spot-check llms.txt output via the API.
+6. Optionally use Playwright for 1-2 visual spot-checks.
 
 ## Reporting
 
 After all tests complete, output:
 
-1. **Summary table** with all results
-2. **Pass rate** per category (e.g., "Category A: 7/7, Category B: 3/4, Category C: 2/2")
-3. **Failures** with details on what went wrong
-4. **Observations** on scoring patterns, timing, or unexpected behavior
+1. **Summary table** from `make crawl-status`
+2. **Pass rate** per category
+3. **Failures** with error details
+4. **Observations** on scoring, timing, or unexpected behavior
 
-If any Category A test fails, flag it as a **blocker**. Category B/C failures are informational unless the crawl crashes entirely.
+Category A failures are **blockers**. Category B/C failures are informational unless the crawl crashes entirely.
