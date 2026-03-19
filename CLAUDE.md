@@ -42,8 +42,10 @@ Source code lives in `src/crawllmer/`, organised as hexagonal (ports & adapters)
 
 ```
 src/crawllmer/
+├── core/            # Cross-cutting: errors.py (typed exception hierarchy)
+│   └── observability/  # telemetry_setup.py, pipeline_telemetry.py, events.py (structured events + business metrics)
 ├── domain/          # models.py (Pydantic/SQLModel), ports.py (abstract interfaces)
-├── application/     # orchestrator.py, workers.py, queueing.py, scheduler.py, retry.py, observability.py
+├── application/     # orchestrator.py, workers.py, queueing.py, scheduler.py, retry.py
 ├── adapters/        # storage.py (SQLModel/SQLite persistence)
 ├── web/             # app.py (FastAPI routes), streamlit_app.py (Streamlit UI), runtime.py (shared bootstrap)
 ├── main.py          # FastAPI entrypoint
@@ -73,6 +75,7 @@ See `.env.example` for the full list with inline documentation.
 | `CRAWLLMER_DB_URL` | `sqlite:///./crawllmer.db` | App database |
 | `CRAWLLMER_CELERY_BROKER_URL` | `sqla+sqlite:///./celery-broker.db` | Celery broker (use `redis://...` for Redis) |
 | `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery results (use `redis://...` for Redis) |
+| `CRAWLLMER_LOG_LEVEL` | `DEBUG` | Logging severity (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
 | `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval |
 
 ## Observability

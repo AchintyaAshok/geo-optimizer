@@ -101,3 +101,28 @@ The `/process` endpoint currently runs the pipeline synchronously (blocking the 
 This is wired up but doesn't require an OTel collector to run — it degrades gracefully to local metrics.
 
 **Trade-off**: The `opentelemetry-api` and `opentelemetry-sdk` dependencies. These are lightweight and don't impact runtime performance when no exporter is configured.
+
+## Observability Events (Business Metrics)
+
+**Decision**: Separate business-level metrics from stage-level pipeline telemetry, using structured event dataclasses as the single emission point.
+
+**Why**: The existing `PipelineTelemetry` tracks execution mechanics — stage durations, state transitions, outcome counters. These are useful for debugging but don't answer product-level questions like "how many pages did we index?" or "how big was the output?". Business metrics (`crawllmer_pages_indexed_total`, `crawllmer_run_duration_seconds`, `crawllmer_llmstxt_size_bytes`) live on a separate `crawllmer.business` OTEL meter and track run-level outcomes that matter to users.
+
+Each pipeline milestone is represented by a typed `EventMetadata` subclass (e.g. `DiscoveryCompletedEvent`, `RunCompletedEvent`). The event's `to_attributes()` method serialises its fields into OTEL-compatible key-value pairs. The same event object drives both structured log emission (via `log_event()`) and metric recording (via `BusinessMetrics`), ensuring a single emission point with no double-counting.
+
+**Trade-off**: More classes and a second OTEL meter. The separation keeps concerns clear — stage telemetry is internal debugging; business metrics are user-facing. The event dataclasses add a small amount of code but make the emission contract explicit and testable.
+
+## Error Handling
+
+**Decision**: Replace all generic `Exception` and `ValueError` catches with a typed exception hierarchy rooted in `CrawllmerError`.
+
+**Why**: The codebase previously caught bare `Exception` in the orchestrator and web layer, making it impossible to distinguish between a bad user URL, a missing run, a network failure, and an internal bug. Typed exceptions enable:
+- Precise HTTP status mapping in the web layer (`InvalidInputError` → 422, `RunNotFoundError` → 404, `PipelineProcessingError` → 500)
+- Structured error attributes (stage name, URL, status code) that flow into logs and traces
+- `PipelineProcessingError` wraps the original exception as `__cause__`, preserving the full causal chain for debugging while giving callers a single type to catch at the boundary
+
+Each error class has an explicit `__init__` that stores structured attributes and produces a human-readable `str()`. This makes errors both programmatically inspectable (`exc.stage`, `exc.url`) and readable in tracebacks.
+
+**Approved exception**: `retry.py` retains a bare `except Exception` because a generic retry wrapper cannot know what exceptions its callable may raise. This is the only file exempt from the typed-exceptions rule.
+
+**Trade-off**: More exception classes to maintain. The hierarchy is small (7 classes) and each maps to a distinct failure mode, so the cognitive overhead is low.
