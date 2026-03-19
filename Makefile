@@ -32,10 +32,10 @@ run-ui:  ## Start Streamlit UI on :8501
 	uv run streamlit run src/crawllmer/app/web/streamlit_app.py --server.address 0.0.0.0 --server.port 8501
 
 run-worker:  ## Start Celery worker (SQLite broker by default)
-	uv run python -m crawllmer.worker
+	uv run python -m crawllmer.app.indexer
 
 run-dev:  ## Start API + UI + worker together (Ctrl-C stops all)
-	bash -lc 'trap "kill 0" EXIT; uv run uvicorn crawllmer.main:app --host 0.0.0.0 --port 8000 --reload & uv run streamlit run src/crawllmer/app/web/streamlit_app.py --server.address 0.0.0.0 --server.port 8501 & uv run python -m crawllmer.worker & wait'
+	bash -lc 'trap "kill 0" EXIT; uv run uvicorn crawllmer.main:app --host 0.0.0.0 --port 8000 --reload & uv run streamlit run src/crawllmer/app/web/streamlit_app.py --server.address 0.0.0.0 --server.port 8501 & uv run python -m crawllmer.app.indexer & wait'
 
 run-observability:  ## Start full stack with OTEL Collector, Jaeger, Prometheus, Grafana
 	docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build
@@ -54,7 +54,7 @@ clean: clean-db  ## Remove venv, caches, and DB files (run `make sync` after)
 stop:  ## Kill any running API/UI/worker processes
 	-pkill -f "uvicorn crawllmer" 2>/dev/null
 	-pkill -f "streamlit run" 2>/dev/null
-	-pkill -f "crawllmer.worker" 2>/dev/null
+	-pkill -f "crawllmer.app.indexer" 2>/dev/null
 	@sleep 1
 
 restart: stop clean-db run-dev  ## Stop servers, wipe DBs, and start fresh

@@ -36,7 +36,7 @@ services:
       api:
         condition: service_healthy
     command: >
-      bash -lc "pip install uv && uv sync && uv run python -m crawllmer.worker"
+      bash -lc "pip install uv && uv sync && uv run python -m crawllmer.app.indexer"
 
 volumes:
   crawllmer-db:

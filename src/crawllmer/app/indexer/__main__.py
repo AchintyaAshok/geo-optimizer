@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from crawllmer.celery_app import celery_app
+from crawllmer.app.indexer.app import celery_app
 
 
 def main() -> None:
