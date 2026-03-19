@@ -117,6 +117,55 @@ def list_work_items(self, run_id: UUID) -> list[WorkItem]:
 
 This is a simple query on the existing `WorkItemRecord` table — no schema changes.
 
+### Master-Detail Panel Layout (added post-approval)
+
+Replace the per-card expander design with a two-column master-detail layout:
+
+```
+┌──────────────────────────┬──────────────────────────────┐
+│  [ URL input     ] [Go]  │                              │
+│                          │  Detail Panel                │
+│  ▼ Active                │  ─────────────────────────── │
+│  ┃ vite.dev  ▶ Extr  3s │  vite.dev                    │
+│                          │  Status: running             │
+│  ▼ Completed             │  ✓ Discovery     226ms      │
+│  ┃ nuxt.com  ✓  89%     │  ▶ Extraction    ...        │
+│  ┃ nextjs.org ✓  41%    │  ○ Canonicalize  --         │
+│                          │  ○ Scoring       --         │
+│  ▼ History               │  ○ Generation    --         │
+│  ┃ example.com ✗ failed │                              │
+│                          │  [llms.txt: 42 lines, 1.2K] │
+│                          │  ┌─────────────────────┐    │
+│                          │  │ # llms.txt for ...  │    │
+│                          │  │ - [Page](url): ...  │    │
+│                          │  │ ...                  │    │
+│                          │  │ (truncated, 1000+)   │    │
+│                          │  └─────────────────────┘    │
+│                          │  [Download llms.txt]         │
+└──────────────────────────┴──────────────────────────────┘
+```
+
+**Left column (master list, ~40% width):**
+- URL input + submit button at top
+- Compact run rows: hostname, status badge, score (if done), elapsed time
+- Click a row → populates the detail panel on the right
+- Grouped: Active (polling), Completed this session, History
+- Selected row visually highlighted
+
+**Right column (detail panel, ~60% width):**
+- Appears when a run is selected (empty state: "Select a crawl to view details")
+- Shows: stage progress bar, score metrics with tooltips, timeline, llms.txt
+- llms.txt handling:
+  - Show word count and line count as a header: "42 lines · 1,247 words"
+  - If ≤1000 lines: show full content in collapsible `st.expander`
+  - If >1000 lines: show first 1000 lines, then "... truncated. Download to see full file."
+  - Always show download button
+- Auto-selects newly submitted runs
+
+**Session state additions:**
+- `selected_run`: UUID string of the currently viewed run (None = empty state)
+- Auto-set to new run on submit, persists on rerun cycles
+
 ## High Effort Version
 
 Everything in Low Effort, plus:
