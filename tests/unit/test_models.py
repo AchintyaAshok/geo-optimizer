@@ -62,8 +62,11 @@ def test_llms_txt_document_serialization_is_deterministic() -> None:
 
     # H1 title
     assert lines[0] == "# Example Site"
+    # Blockquote contains navigational prompt
+    assert "structured overview of example.com" in text
+    assert "large language models" in text
+    assert "Pages" in text  # section name listed in prompt
     # Blockquote contains metadata
-    assert "example.com" in text
     assert "**Pages crawled**: 2" in text
     assert "**Links discovered**: 5" in text
     assert "**Website Description**: An example website." in text

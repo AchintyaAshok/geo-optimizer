@@ -67,12 +67,19 @@ class LlmsTxtDocument(BaseModel):
         lines.append(f"# {heading}")
         lines.append("")
 
-        # Blockquote — structured summary for LLM consumption
+        # Blockquote — navigational prompt + metadata for LLM consumption
+        host = str(self.source_url.host)
+        section_names = list(self.sections.keys())
+        section_list = ", ".join(section_names) if section_names else "various topics"
+
         lines.append(
-            f"> This is a machine-generated llms.txt file for {self.source_url.host}."
-        )
-        lines.append(
-            "> Use the sections below to find relevant pages and documentation."
+            f"> This file provides a structured overview of {host} "
+            "for use by large language models and AI assistants. "
+            "Each section below groups related pages by topic. "
+            "Links include titles and descriptions where available "
+            "to help you quickly identify relevant content. "
+            f"The content is organised into the following sections: "
+            f"{section_list}."
         )
         lines.append(">")
         ts = self.generated_at.strftime("%Y-%m-%d %H:%M UTC")
