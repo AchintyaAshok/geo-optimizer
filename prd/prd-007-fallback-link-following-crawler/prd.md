@@ -255,29 +255,45 @@ src/crawllmer/
 ├── domain/            # Shared: models, ports
 ├── application/       # Shared: orchestrator, queueing, retry, scheduler
 ├── adapters/          # Shared: storage
-├── api/               # API application (FastAPI routes) — move from web/app.py
-├── web/               # Web application (Streamlit UI) — keep streamlit_app.py
-├── indexer/           # Indexer application (NEW)
-│   ├── __init__.py
-│   ├── spider.py      # BFS scan, link extraction, spider strategy
-│   ├── page_indexer.py  # index_page task, shared extraction primitive
-│   └── link_filter.py   # Extension filtering, non-content path detection
+├── app/               # Application layer — three distinct runtimes
+│   ├── api/           # REST API (FastAPI routes)
+│   │   ├── __init__.py
+│   │   └── routes.py  # All API endpoints (move from web/app.py)
+│   ├── web/           # Streamlit UI
+│   │   ├── __init__.py
+│   │   ├── streamlit_app.py
+│   │   └── runtime.py
+│   └── indexer/       # Crawler, spider, task processing
+│       ├── __init__.py
+│       ├── spider.py         # BFS scan, link extraction, spider strategy
+│       ├── page_indexer.py   # index_page logic, shared extraction primitive
+│       ├── link_filter.py    # Extension filtering, non-content path detection
+│       └── taskprocessor.py  # Celery app, task definitions, worker entrypoint
 ├── config.py          # Shared config (add spider settings)
-├── main.py            # FastAPI entrypoint
-├── celery_app.py      # Celery config + task registration (imports indexer tasks)
-└── worker.py          # Celery worker entrypoint
+└── main.py            # FastAPI entrypoint (imports app.api)
 ```
+
+The three applications live under `app/` as sibling packages. Each has its own entrypoint and can be deployed independently, but they share `core/`, `domain/`, `application/`, and `adapters/`.
+
+`celery_app.py` and `worker.py` move into `app/indexer/taskprocessor.py`. The module is named `taskprocessor` (not `celery_app`) because the task processing abstraction could change without affecting the rest of the codebase.
 
 | Component | Location |
 |-----------|----------|
-| BFS scan + link graph | `src/crawllmer/indexer/spider.py` |
-| Link extraction + filtering | `src/crawllmer/indexer/link_filter.py` |
-| `crawllmer.index_page` task | `src/crawllmer/indexer/page_indexer.py` |
+| API routes | `src/crawllmer/app/api/routes.py` |
+| Streamlit UI | `src/crawllmer/app/web/streamlit_app.py` |
+| Celery app + all task definitions | `src/crawllmer/app/indexer/taskprocessor.py` |
+| BFS scan + link graph | `src/crawllmer/app/indexer/spider.py` |
+| Link extraction + filtering | `src/crawllmer/app/indexer/link_filter.py` |
+| Page indexing logic | `src/crawllmer/app/indexer/page_indexer.py` |
 | Spider config settings | `src/crawllmer/config.py` (new fields) |
-| Task registration | `src/crawllmer/celery_app.py` (import indexer tasks) |
-| Strategy integration | `src/crawllmer/application/workers.py` (call into `indexer.spider`) |
+| Strategy integration | `src/crawllmer/application/workers.py` (call into `app.indexer.spider`) |
 
-**Note on api/ separation**: Moving `web/app.py` to `api/` is a separate refactor (not in scope for this PRD) but is called out here as the logical next step. The three applications (API, Web, Indexer) each have their own entry points and can be deployed independently.
+**Migration path**:
+- `web/app.py` → `app/api/routes.py`
+- `web/streamlit_app.py` + `web/runtime.py` → `app/web/`
+- `celery_app.py` + `worker.py` → `app/indexer/taskprocessor.py`
+- `main.py` updates to import from `app.api`
+- Makefile `run-worker` → `python -m crawllmer.app.indexer.taskprocessor`
 
 ## High Effort Version
 
