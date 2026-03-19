@@ -20,7 +20,16 @@ curl -s http://localhost:8000/health   # → {"status": "ok"}
 
 ### Submitting crawls
 
-Submit crawls via the API. For each test URL:
+Use the integration test script to submit all URLs at once:
+
+```bash
+make inttest                  # submit all categories (a, b, c)
+make inttest CATEGORY=a       # submit only Category A
+make inttest CATEGORY=b       # submit only Category B
+make inttest CATEGORY=c       # submit only Category C
+```
+
+Or submit a single URL manually:
 
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/crawls \
@@ -28,9 +37,7 @@ curl -s -X POST http://localhost:8000/api/v1/crawls \
   -d '{"url": "https://TARGET_URL"}'
 ```
 
-This returns `{"run_id": "...", "status": "queued"}`. The worker picks it up automatically.
-
-You can submit multiple crawls — they queue and process sequentially.
+Crawls queue and process sequentially (solo worker pool).
 
 ### Checking status
 

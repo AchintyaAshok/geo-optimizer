@@ -1,4 +1,4 @@
-.PHONY: sync test test-one lint lint-fix format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart crawl-status help
+.PHONY: sync test test-one lint lint-fix format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart crawl-status inttest help
 
 # ─── Setup ───────────────────────────────────────────────────────────────────
 
@@ -64,6 +64,9 @@ restart: stop clean-db run-dev  ## Stop servers, wipe DBs, and start fresh
 
 crawl-status:  ## Show status of all crawl runs (add -v for events detail)
 	@python3 scripts/check-crawl-status.py $(ARGS)
+
+inttest:  ## Submit integration test URLs (CATEGORY=a|b|c|all, default: all)
+	@bash scripts/submit-inttest.sh $(CATEGORY)
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
