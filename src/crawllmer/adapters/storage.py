@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
@@ -18,6 +19,8 @@ from crawllmer.domain.models import (
     WorkStage,
 )
 from crawllmer.domain.ports import CrawlRepository
+
+# ── SQLModel table records ──────────────────────────────────────────────
 
 
 class CrawlRunRecord(SQLModel, table=True):
@@ -94,13 +97,18 @@ class ArtifactRecord(SQLModel, table=True):
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
-class SqliteCrawlRepository(CrawlRepository):
-    def __init__(self, db_url: str = "sqlite:///./crawllmer.db") -> None:
-        self.engine = create_engine(db_url)
-        try:
-            SQLModel.metadata.create_all(self.engine)
-        except OperationalError:
-            pass  # table already created by another process (race on startup)
+# ── Repository implementations ──────────────────────────────────────────
+
+
+class SqlAlchemyStorageRepository(CrawlRepository):
+    """Backend-agnostic repository using SQLAlchemy/SQLModel.
+
+    Subclasses provide the engine with backend-specific configuration.
+    """
+
+    def __init__(self, engine: Engine) -> None:
+        self.engine = engine
+        SQLModel.metadata.create_all(self.engine)
 
     def create_run(self, run: CrawlRun) -> CrawlRun:
         record = CrawlRunRecord(
@@ -389,7 +397,34 @@ class SqliteCrawlRepository(CrawlRepository):
         )
 
 
-def default_repository(
-    db_url: str = "sqlite:///./crawllmer.db",
-) -> SqliteCrawlRepository:
-    return SqliteCrawlRepository(db_url=db_url)
+class SqliteStorageRepository(SqlAlchemyStorageRepository):
+    """SQLite-backed storage with thread-safety and race-condition handling."""
+
+    def __init__(self, db_url: str = "sqlite:///./crawllmer.db") -> None:
+        engine = create_engine(
+            db_url, connect_args={"check_same_thread": False}
+        )
+        try:
+            super().__init__(engine)
+        except OperationalError:
+            # Table already created by another process (race on startup)
+            self.engine = engine
+
+
+class PgSqlStorageRepository(SqlAlchemyStorageRepository):
+    """PostgreSQL-backed storage with connection pooling."""
+
+    def __init__(self, db_url: str) -> None:
+        engine = create_engine(db_url, pool_pre_ping=True, pool_size=5)
+        super().__init__(engine)
+
+
+def get_storage(settings: object | None = None) -> CrawlRepository:
+    """Factory: return the right storage backend based on settings."""
+    from crawllmer.core.config import get_settings
+
+    if settings is None:
+        settings = get_settings()
+    if settings.storage_backend == "pgsql":
+        return PgSqlStorageRepository(db_url=settings.db_url)
+    return SqliteStorageRepository(db_url=settings.db_url)

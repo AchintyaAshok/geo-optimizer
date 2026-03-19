@@ -5,7 +5,7 @@ from uuid import UUID
 
 from celery.signals import worker_init
 
-from crawllmer.adapters.storage import default_repository
+from crawllmer.adapters.storage import get_storage
 from crawllmer.app.indexer.queueing import CeleryQueuePublisher, build_celery_app
 from crawllmer.core import PipelineProcessingError
 from crawllmer.core.config import get_settings
@@ -30,7 +30,7 @@ def init_telemetry(**kwargs):  # noqa: ARG001
 @celery_app.task(name="crawllmer.discovery")
 def process_run_task(run_id: str, work_item_id: str | None = None) -> dict:  # noqa: ARG001
     """Celery entrypoint for processing an enqueued crawl run."""
-    repository = default_repository(db_url=_settings.db_url)
+    repository = get_storage()
     queue = CeleryQueuePublisher(
         broker_url=_settings.celery_broker_url,
         result_backend=_settings.celery_result_backend,

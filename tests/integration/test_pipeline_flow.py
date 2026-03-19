@@ -7,7 +7,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from crawllmer.adapters.storage import SqliteCrawlRepository
+from crawllmer.adapters.storage import SqliteStorageRepository
 from crawllmer.core import PipelineProcessingError
 from crawllmer.core.observability import PipelineTelemetry
 from crawllmer.core.orchestrator import CrawlPipeline
@@ -112,7 +112,7 @@ def test_pipeline_happy_path_emits_spans_and_metrics(tmp_path, monkeypatch) -> N
     )
     span_exporter, metric_reader = _setup_otel()
 
-    repo = SqliteCrawlRepository(db_url=f"sqlite:///{tmp_path}/happy.db")
+    repo = SqliteStorageRepository(db_url=f"sqlite:///{tmp_path}/happy.db")
     telemetry = PipelineTelemetry()
     pipeline = CrawlPipeline(
         repository=repo,
@@ -157,7 +157,7 @@ def test_pipeline_failure_path_marks_failed_stage_and_run(
     )
     _setup_otel()
 
-    repo = SqliteCrawlRepository(db_url=f"sqlite:///{tmp_path}/fail.db")
+    repo = SqliteStorageRepository(db_url=f"sqlite:///{tmp_path}/fail.db")
     pipeline = CrawlPipeline(
         repository=repo,
         queue=StubQueuePublisher(),
