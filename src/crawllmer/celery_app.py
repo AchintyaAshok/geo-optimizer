@@ -8,8 +8,8 @@ from celery.signals import worker_init
 from crawllmer.adapters.storage import default_repository
 from crawllmer.application.orchestrator import CrawlPipeline
 from crawllmer.application.queueing import CeleryQueuePublisher, build_celery_app
-from crawllmer.config import get_settings
 from crawllmer.core import PipelineProcessingError
+from crawllmer.core.config import get_settings
 from crawllmer.core.observability import setup_telemetry
 
 logger = logging.getLogger("crawllmer.celery")

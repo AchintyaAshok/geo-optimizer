@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from crawllmer.config import Settings
+from crawllmer.core.config import Settings
 
 
 def test_default_log_level_is_debug() -> None:

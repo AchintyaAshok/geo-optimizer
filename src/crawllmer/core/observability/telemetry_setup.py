@@ -73,7 +73,7 @@ def setup_telemetry(service_name: str) -> None:
     set_logger_provider(logger_provider)
 
     # Bridge stdlib logging into OTEL logs pipeline
-    from crawllmer.config import get_settings
+    from crawllmer.core.config import get_settings
 
     handler = LoggingHandler(
         level=logging.NOTSET,

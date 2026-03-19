@@ -1,4 +1,4 @@
-.PHONY: sync test lint format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart crawl-status help
+.PHONY: sync test lint lint-fix format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart crawl-status help
 
 # ─── Setup ───────────────────────────────────────────────────────────────────
 
@@ -13,10 +13,15 @@ test:  ## Run test suite (pytest -v -s)
 lint:  ## Lint code with ruff
 	uv run ruff check .
 
+lint-fix:  ## Lint and auto-fix (imports, safe fixes)
+	uv run ruff check --fix .
+
 format:  ## Auto-format code with ruff
 	uv run ruff format .
 
 check: format lint test  ## Run format → lint → test (full quality gate)
+
+fix: format lint-fix  ## Auto-format + auto-fix lint issues
 
 # ─── Run (Local) ─────────────────────────────────────────────────────────────
 

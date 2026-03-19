@@ -3,7 +3,7 @@ from __future__ import annotations
 from crawllmer.adapters.storage import default_repository
 from crawllmer.application.orchestrator import CrawlPipeline
 from crawllmer.application.queueing import CeleryQueuePublisher
-from crawllmer.config import get_settings
+from crawllmer.core.config import get_settings
 
 _settings = get_settings()
 
