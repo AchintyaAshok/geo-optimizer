@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException
@@ -7,10 +9,18 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, HttpUrl
 
 from crawllmer.application.observability import log_event
+from crawllmer.application.telemetry_setup import setup_telemetry
 from crawllmer.domain.models import RunStatus
 from crawllmer.web.runtime import pipeline, repo
 
-app = FastAPI(title="crawllmer")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    setup_telemetry("crawllmer-api")
+    yield
+
+
+app = FastAPI(title="crawllmer", lifespan=lifespan)
 
 
 class CrawlRequest(BaseModel):
