@@ -32,3 +32,6 @@ htmlcov/
 
 # SQLite runtime databases
 *.db
+
+# Environment
+.env

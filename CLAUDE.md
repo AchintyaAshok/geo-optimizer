@@ -64,6 +64,10 @@ tests/
 
 ## Environment Variables
 
+All configuration is centralised in `src/crawllmer/config.py` (Pydantic Settings).
+Variables are loaded from the environment or a `.env` file at the project root.
+See `.env.example` for the full list with inline documentation.
+
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `CRAWLLMER_DB_URL` | `sqlite:///./crawllmer.db` | App database |
