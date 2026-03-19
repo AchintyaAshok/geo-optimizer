@@ -635,16 +635,21 @@ with col_list:
     def _run_list_fragment() -> None:
         active_runs, recent_runs, history_runs, has_active = _fetch_runs()
 
-        # Refresh indicator
+        # Refresh indicator + manual refresh button
         updated_at = datetime.now(UTC).strftime("%H:%M:%S")
         dot_cls = "refresh-dot" if has_active else "refresh-dot refresh-dot-idle"
         label = "Auto-refreshing" if has_active else "Up to date"
-        st.markdown(
-            f'<div class="refresh-bar">'
-            f'<span class="{dot_cls}"></span> {label} · {updated_at}'
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+        ind_col, btn_col = st.columns([3, 1])
+        with ind_col:
+            st.markdown(
+                f'<div class="refresh-bar">'
+                f'<span class="{dot_cls}"></span> {label} · {updated_at}'
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with btn_col:
+            if st.button("Refresh", key="refresh-btn", use_container_width=True):
+                st.rerun(scope="fragment")
 
         # Active runs
         if active_runs:
