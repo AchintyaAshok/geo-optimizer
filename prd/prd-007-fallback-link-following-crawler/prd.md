@@ -430,9 +430,17 @@ Every decision the spider makes is recorded as a pipeline event:
 
 This means `GET /api/v1/crawls/{run_id}/events` provides a complete audit trail. No new API endpoint is needed — the existing events endpoint and Streamlit UI already render these. A future enhancement could add a dedicated `/api/v1/crawls/{run_id}/strategy` endpoint that summarizes the discovery strategy in a structured format, but the raw events are sufficient for now.
 
+## Footnotes
+
+**Freshness-weighted importance scoring**: During Phase 1 scanning, the spider could capture `Last-Modified` response headers or `<meta name="date">` / `<meta property="article:modified_time">` values. Pages with more recent timestamps would receive a priority boost in the ranking, so the indexing budget favours current content over stale pages. This pairs naturally with the existing ETag/If-Modified-Since validator infrastructure in the storage layer. Separate feature — not part of this PRD.
+
+**Celery task introspection API**: Celery provides an [Inspect API](https://docs.celeryq.dev/en/stable/userguide/monitoring.html) (`inspect().active()`, `.reserved()`, `.scheduled()`) and `AsyncResult(task_id)` for querying task state. Exposing this via `/api/v1/tasks/active` and `/api/v1/tasks/{task_id}` would give the UI and API consumers visibility into the Celery queue. This is a **separate feature** — not part of this PRD — but pairs well with the async indexing work here. Note: the inspect broadcast API requires Redis (doesn't work well with SQLite broker); `AsyncResult` works with any backend.
+
 ## Approval State
 
 | Status | Date | Notes |
 |--------|------|-------|
 | Draft | 2026-03-19 | Initial draft |
-| Revised | 2026-03-19 | Incorporate feedback: two-phase architecture, async task queue, config-driven bounds, BeautifulSoup, pipeline events, extension filtering |
+| Revised | 2026-03-19 | Two-phase architecture, async task queue, config-driven bounds, BeautifulSoup, pipeline events, extension filtering |
+| Revised | 2026-03-19 | Module restructure: app/{api,web,indexer}, eliminate application/, config to core/ |
+| Approved | 2026-03-19 | Low effort scope approved |
