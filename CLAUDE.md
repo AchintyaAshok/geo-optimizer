@@ -11,11 +11,12 @@ This is a greenfield Python 3.12 project using `uv` as the package manager. The 
 ## Commands
 
 ```bash
-make sync      # Install/sync dependencies (uv sync)
-make test      # Run tests (uv run pytest -v -s)
-make lint      # Lint (uv run ruff check .)
-make format    # Auto-format (uv run ruff format .)
-make check     # Format → lint → test (quality gate)
+make sync              # Install/sync dependencies (uv sync)
+make test              # Run tests (uv run pytest -v -s)
+make lint              # Lint (uv run ruff check .)
+make format            # Auto-format (uv run ruff format .)
+make check             # Format → lint → test (quality gate)
+make run-observability # Full stack with OTEL Collector, Jaeger, Prometheus, Grafana
 ```
 
 Run a single test: `uv run pytest tests/test_example.py::test_name -v -s`
@@ -35,6 +36,17 @@ Expected modules (not yet built):
 - **Crawler** — traverses target websites, discovers pages
 - **Extractor** — parses HTML, pulls titles/descriptions/metadata
 - **Generator** — structures extracted data into llms.txt format per spec
+
+## Observability
+
+OpenTelemetry is the single telemetry protocol for traces, metrics, and structured logs.
+
+- **Bootstrap**: `setup_telemetry(service_name)` in `src/crawllmer/application/telemetry_setup.py` — called at FastAPI startup and Celery worker init
+- **Dual-mode exporters**: When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, OTLP gRPC exporters send to a collector. When unset, console exporters print telemetry to stdout (local dev default)
+- **Auto-instrumentation**: FastAPI, httpx, Celery, SQLite3 — zero-effort spans for all requests, outbound calls, tasks, and DB queries
+- **Custom telemetry**: `PipelineTelemetry` in `observability.py` provides pipeline-specific metrics and span events
+- **Stack**: `make run-observability` starts the full stack — OTEL Collector (:4317), Jaeger (:16686), Prometheus (:9090), Grafana (:3000)
+- **Config**: `infra/otel-collector-config.yaml`, `infra/prometheus/prometheus.yml`, `infra/grafana/provisioning/`
 
 ## Key Specs
 
