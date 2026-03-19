@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
+from uuid import UUID
 
 import streamlit as st
 
-from crawllmer.domain.models import RunStatus, WorkItem, WorkItemState, WorkStage
+from crawllmer.domain.models import (
+    CrawlRun,
+    RunStatus,
+    WorkItem,
+    WorkItemState,
+    WorkStage,
+)
 from crawllmer.web.runtime import pipeline, repo
 
 # ---------------------------------------------------------------------------
-# Page config & custom CSS
+# Page config
 # ---------------------------------------------------------------------------
 
 st.set_page_config(page_title="crawllmer", layout="wide")
@@ -23,15 +30,15 @@ STAGE_LABELS = {
     WorkStage.generation: "Generation",
 }
 
+MAX_PREVIEW_LINES = 1000
+
+# ---------------------------------------------------------------------------
+# CSS
+# ---------------------------------------------------------------------------
+
 st.markdown(
     """
     <style>
-    /* ---- card container ---- */
-    div[data-testid="stExpander"] {
-        border: 1px solid rgba(128,128,128,.25);
-        border-radius: 8px;
-    }
-    /* ---- stage pill ---- */
     .stage-pill {
         display: inline-block;
         padding: 2px 10px;
@@ -44,7 +51,6 @@ st.markdown(
     .stage-active{ background: #1e40af; color: #bfdbfe; }
     .stage-pend  { background: #374151; color: #9ca3af; }
     .stage-fail  { background: #991b1b; color: #fecaca; }
-    /* ---- status badge ---- */
     .badge {
         display: inline-block;
         padding: 2px 8px;
@@ -56,38 +62,35 @@ st.markdown(
     .badge-failed    { background: #991b1b; color: #fecaca; }
     .badge-running   { background: #1e40af; color: #bfdbfe; }
     .badge-queued    { background: #374151; color: #9ca3af; }
-    /* ---- timeline row ---- */
     .tl-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 4px 0;
-        font-size: .85rem;
+        display: flex; align-items: center; gap: 10px;
+        padding: 4px 0; font-size: .85rem;
         border-bottom: 1px solid rgba(128,128,128,.15);
     }
     .tl-icon { font-size: 1.1rem; width: 22px; text-align: center; }
     .tl-stage { font-weight: 600; min-width: 110px; }
     .tl-dur { color: #9ca3af; min-width: 70px; }
     .tl-err { color: #f87171; font-size: .8rem; }
-    /* ---- header area ---- */
     .app-subtitle {
-        font-size: 1.05rem;
-        color: #9ca3af;
-        margin-top: -12px;
-        margin-bottom: 20px;
+        font-size: 1.05rem; color: #9ca3af;
+        margin-top: -12px; margin-bottom: 20px;
+    }
+    /* run list row */
+    .run-row {
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 8px; border-radius: 6px; cursor: pointer;
+        border-bottom: 1px solid rgba(128,128,128,.1);
+    }
+    .run-row:hover { background: rgba(128,128,128,.08); }
+    .run-host { font-weight: 600; flex: 1; }
+    .run-meta { font-size: .8rem; color: #9ca3af; }
+    .run-score { font-size: .85rem; font-weight: 600; }
+    .detail-header {
+        font-size: 1.4rem; font-weight: 700;
+        margin-bottom: 4px;
     }
     </style>
     """,
-    unsafe_allow_html=True,
-)
-
-# ---------------------------------------------------------------------------
-# Header
-# ---------------------------------------------------------------------------
-
-st.title("crawllmer")
-st.markdown(
-    '<p class="app-subtitle">Generate spec-compliant llms.txt for any website</p>',
     unsafe_allow_html=True,
 )
 
@@ -99,30 +102,8 @@ if "active_runs" not in st.session_state:
     st.session_state.active_runs: list[str] = []
 if "completed_runs" not in st.session_state:
     st.session_state.completed_runs: list[str] = []
-
-# ---------------------------------------------------------------------------
-# URL input
-# ---------------------------------------------------------------------------
-
-col_input, col_btn = st.columns([5, 1])
-with col_input:
-    url = st.text_input(
-        "Website URL",
-        placeholder="https://example.com",
-        label_visibility="collapsed",
-    )
-with col_btn:
-    submitted = st.button("Crawl", use_container_width=True, type="primary")
-
-if submitted:
-    if not url:
-        st.error("Please provide a URL.")
-    else:
-        try:
-            run = pipeline.enqueue_run(url)
-            st.session_state.active_runs.append(str(run.id))
-        except ValueError as exc:
-            st.error(f"Invalid URL: {exc}")
+if "selected_run" not in st.session_state:
+    st.session_state.selected_run: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -131,13 +112,10 @@ if submitted:
 
 
 def _elapsed(start: datetime) -> str:
-    """Human-readable elapsed time."""
     now = datetime.now(UTC)
-    # SQLite may return naive datetimes — treat them as UTC
     if start.tzinfo is None:
         start = start.replace(tzinfo=UTC)
-    delta = now - start
-    secs = int(delta.total_seconds())
+    secs = int((now - start).total_seconds())
     if secs < 60:
         return f"{secs}s"
     if secs < 3600:
@@ -146,28 +124,13 @@ def _elapsed(start: datetime) -> str:
 
 
 def _duration(item: WorkItem) -> str:
-    """Duration of a work item."""
-    delta = item.updated_at - item.created_at
-    ms = int(delta.total_seconds() * 1000)
+    ms = int((item.updated_at - item.created_at).total_seconds() * 1000)
     if ms < 1000:
         return f"{ms}ms"
     return f"{ms / 1000:.1f}s"
 
 
-def _stage_index(items: list[WorkItem]) -> int:
-    """Return the index of the furthest completed stage, or current active."""
-    completed_stages: set[WorkStage] = set()
-    for item in items:
-        if item.state == WorkItemState.completed:
-            completed_stages.add(item.stage)
-    for i, stage in enumerate(STAGES):
-        if stage not in completed_stages:
-            return i
-    return len(STAGES)
-
-
 def _stage_state(stage: WorkStage, items: list[WorkItem]) -> str:
-    """Determine the visual state of a pipeline stage from work items."""
     stage_items = [i for i in items if i.stage == stage]
     if not stage_items:
         return "pending"
@@ -181,13 +144,26 @@ def _stage_state(stage: WorkStage, items: list[WorkItem]) -> str:
     return "pending"
 
 
+def _current_stage_label(items: list[WorkItem]) -> str:
+    """Short label for the current/latest stage."""
+    for stage in reversed(STAGES):
+        state = _stage_state(stage, items)
+        if state in ("active", "done", "failed"):
+            icon = {"active": "▶", "done": "✓", "failed": "✗"}[state]
+            return f"{icon} {STAGE_LABELS[stage]}"
+    return "queued"
+
+
+# ---------------------------------------------------------------------------
+# Rendering: stage bar, timeline, detail panel
+# ---------------------------------------------------------------------------
+
+
 def _render_stage_bar(items: list[WorkItem]) -> None:
-    """Render a 5-stage progress bar as colored pills."""
     pills: list[str] = []
     for stage in STAGES:
         state = _stage_state(stage, items)
-        label = STAGE_LABELS[stage]
-        css_class = {
+        css = {
             "done": "stage-done",
             "active": "stage-active",
             "pending": "stage-pend",
@@ -199,13 +175,13 @@ def _render_stage_bar(items: list[WorkItem]) -> None:
             "pending": "&#8226;",
             "failed": "&#10007;",
         }[state]
-        pills.append(f'<span class="stage-pill {css_class}">{icon} {label}</span>')
+        pills.append(
+            f'<span class="stage-pill {css}">{icon} {STAGE_LABELS[stage]}</span>'
+        )
     st.markdown(" ".join(pills), unsafe_allow_html=True)
 
 
 def _render_timeline(items: list[WorkItem]) -> None:
-    """Render an event timeline for a crawl run."""
-    # Deduplicate: keep one item per stage (prefer non-queued/initial)
     seen: dict[WorkStage, WorkItem] = {}
     for item in items:
         existing = seen.get(item.stage)
@@ -219,8 +195,7 @@ def _render_timeline(items: list[WorkItem]) -> None:
                 '<div class="tl-row">'
                 '<span class="tl-icon">&#9675;</span>'
                 f'<span class="tl-stage">{STAGE_LABELS[stage]}</span>'
-                '<span class="tl-dur">--</span>'
-                "</div>",
+                '<span class="tl-dur">--</span></div>',
                 unsafe_allow_html=True,
             )
             continue
@@ -233,178 +208,264 @@ def _render_timeline(items: list[WorkItem]) -> None:
         }
         icon = icon_map.get(item.state, "&#9675;")
         dur = _duration(item)
-        err_html = ""
-        if item.last_error:
-            err_html = f'<span class="tl-err">{item.last_error}</span>'
-
+        err = (
+            f'<span class="tl-err">{item.last_error}</span>' if item.last_error else ""
+        )
         st.markdown(
             '<div class="tl-row">'
             f'<span class="tl-icon">{icon}</span>'
             f'<span class="tl-stage">{STAGE_LABELS[stage]}</span>'
-            f'<span class="tl-dur">{dur}</span>'
-            f"{err_html}"
-            "</div>",
+            f'<span class="tl-dur">{dur}</span>{err}</div>',
             unsafe_allow_html=True,
         )
 
 
-def _render_run_card(run_id_str: str, *, is_active: bool) -> bool:
-    """Render a crawl card. Returns True if the run is still active."""
-    from uuid import UUID
+def _render_llms_txt(artifact_text: str, run_id_str: str) -> None:
+    """Render llms.txt with stats, truncation for large files."""
+    lines = artifact_text.splitlines()
+    line_count = len(lines)
+    word_count = len(artifact_text.split())
 
-    run_id = UUID(run_id_str)
-    run = repo.get_run(run_id)
-    if run is None:
-        return False
+    st.caption(f"{line_count} lines · {word_count:,} words")
 
-    items = repo.list_work_items(run_id)
-    terminal = run.status in (RunStatus.completed, RunStatus.failed)
-    status_class = f"badge-{run.status.value}"
+    truncated = line_count > MAX_PREVIEW_LINES
+    preview = "\n".join(lines[:MAX_PREVIEW_LINES]) if truncated else artifact_text
 
-    header = f"**{run.hostname}**"
-    if terminal:
-        header += f" &mdash; {_elapsed(run.created_at)} ago"
-    else:
-        header += f" &mdash; started {_elapsed(run.created_at)} ago"
-
-    with st.expander(header, expanded=is_active or terminal):
-        # Status + stage bar
-        col_status, col_elapsed = st.columns([4, 1])
-        with col_status:
-            _render_stage_bar(items)
-        with col_elapsed:
-            st.markdown(
-                f'<span class="badge {status_class}">{run.status.value}</span>',
-                unsafe_allow_html=True,
+    with st.expander(
+        "View llms.txt" if not truncated else "View llms.txt (truncated)",
+        expanded=False,
+    ):
+        st.code(preview, language="text")
+        if truncated:
+            st.info(
+                f"Showing first {MAX_PREVIEW_LINES} of {line_count} "
+                "lines. Download the file to see the full output."
             )
 
-        if terminal:
-            if run.status == RunStatus.completed:
-                # Score metrics
-                mcols = st.columns(4)
-                breakdown = run.score_breakdown or {}
-                mcols[0].metric(
-                    "Overall",
-                    f"{(run.score or 0):.1%}",
-                    help=(
-                        "Weighted composite: "
-                        "40% coverage + 40% confidence + 20% redundancy"
-                    ),
-                )
-                mcols[1].metric(
-                    "Coverage",
-                    f"{breakdown.get('coverage', 0):.1%}",
-                    help=(
-                        "Fraction of pages with title and description. "
-                        "Average of (titled/total) and (described/total)."
-                    ),
-                )
-                mcols[2].metric(
-                    "Confidence",
-                    f"{breakdown.get('confidence', 0):.1%}",
-                    help=(
-                        "Average extraction confidence across pages. "
-                        "Higher when metadata comes from structured "
-                        "sources (meta tags, JSON-LD) vs fallbacks."
-                    ),
-                )
-                mcols[3].metric(
-                    "Redundancy",
-                    f"{breakdown.get('redundancy', 0):.1%}",
-                    help=(
-                        "Ratio of unique URLs to total pages. "
-                        "100% means no duplicates were found."
-                    ),
-                )
+    st.download_button(
+        "Download llms.txt",
+        data=artifact_text,
+        file_name="llms.txt",
+        mime="text/plain",
+        key=f"dl-{run_id_str}",
+    )
 
-                # llms.txt preview
-                artifact = repo.get_artifact(run_id)
-                if artifact:
-                    st.code(artifact.llms_txt, language="text")
-                    st.download_button(
-                        "Download llms.txt",
-                        data=artifact.llms_txt,
-                        file_name="llms.txt",
-                        mime="text/plain",
-                        key=f"dl-{run_id_str}",
-                    )
 
-            elif run.status == RunStatus.failed:
-                st.error(
-                    "Crawl failed: "
-                    f"{run.notes.get('processing_error', 'unknown error')}"
-                )
+def _render_detail_panel(run_id_str: str) -> None:
+    """Render the full detail view for a selected run."""
+    run = repo.get_run(UUID(run_id_str))
+    if run is None:
+        st.warning("Run not found.")
+        return
 
-        # Timeline
-        with st.container():
-            st.caption("Pipeline timeline")
-            _render_timeline(items)
+    items = repo.list_work_items(UUID(run_id_str))
+    status_class = f"badge-{run.status.value}"
 
-    return not terminal
+    # Header
+    st.markdown(
+        f'<div class="detail-header">{run.hostname}</div>',
+        unsafe_allow_html=True,
+    )
+    col_badge, col_time = st.columns([1, 3])
+    with col_badge:
+        st.markdown(
+            f'<span class="badge {status_class}">{run.status.value}</span>',
+            unsafe_allow_html=True,
+        )
+    with col_time:
+        st.caption(f"Started {_elapsed(run.created_at)} ago")
+
+    # Stage bar
+    _render_stage_bar(items)
+
+    # Score metrics (completed only)
+    if run.status == RunStatus.completed:
+        st.markdown("---")
+        mcols = st.columns(4)
+        bd = run.score_breakdown or {}
+        mcols[0].metric(
+            "Overall",
+            f"{(run.score or 0):.1%}",
+            help="Weighted: 40% coverage + 40% confidence + 20% redundancy",
+        )
+        mcols[1].metric(
+            "Coverage",
+            f"{bd.get('coverage', 0):.1%}",
+            help=(
+                "Fraction of pages with title and description. "
+                "Average of (titled/total) and (described/total)."
+            ),
+        )
+        mcols[2].metric(
+            "Confidence",
+            f"{bd.get('confidence', 0):.1%}",
+            help=(
+                "Average extraction confidence across pages. "
+                "Higher when metadata comes from structured "
+                "sources (meta tags, JSON-LD) vs fallbacks."
+            ),
+        )
+        mcols[3].metric(
+            "Redundancy",
+            f"{bd.get('redundancy', 0):.1%}",
+            help=(
+                "Ratio of unique URLs to total pages. "
+                "100% means no duplicates were found."
+            ),
+        )
+
+    # Error (failed only)
+    if run.status == RunStatus.failed:
+        st.error("Crawl failed: " + run.notes.get("processing_error", "unknown error"))
+
+    # llms.txt
+    if run.status == RunStatus.completed:
+        artifact = repo.get_artifact(UUID(run_id_str))
+        if artifact:
+            st.markdown("---")
+            _render_llms_txt(artifact.llms_txt, run_id_str)
+
+    # Timeline
+    st.markdown("---")
+    st.caption("Pipeline timeline")
+    _render_timeline(items)
 
 
 # ---------------------------------------------------------------------------
-# Active crawls
+# Classify active vs completed runs
 # ---------------------------------------------------------------------------
 
 has_active = False
+still_active: list[str] = []
+newly_completed: list[str] = []
 
-if st.session_state.active_runs:
-    # Classify runs before rendering to avoid showing completed in active section
-    still_active: list[str] = []
-    newly_completed: list[str] = []
-    for rid in st.session_state.active_runs:
-        run = repo.get_run(__import__("uuid").UUID(rid))
-        if run and run.status in (RunStatus.completed, RunStatus.failed):
-            newly_completed.append(rid)
-        else:
-            still_active.append(rid)
-
-    if still_active:
-        st.subheader("Active crawls")
-        for rid in still_active:
-            _render_run_card(rid, is_active=True)
+for rid in st.session_state.active_runs:
+    run = repo.get_run(UUID(rid))
+    if run and run.status in (RunStatus.completed, RunStatus.failed):
+        newly_completed.append(rid)
+    else:
+        still_active.append(rid)
         has_active = True
 
-    for rid in newly_completed:
-        if rid not in st.session_state.completed_runs:
-            st.session_state.completed_runs.insert(0, rid)
+for rid in newly_completed:
+    if rid not in st.session_state.completed_runs:
+        st.session_state.completed_runs.insert(0, rid)
+        # Auto-select the newly completed run
+        st.session_state.selected_run = rid
 
-    st.session_state.active_runs = still_active
-
-# ---------------------------------------------------------------------------
-# Completed crawls from this session
-# ---------------------------------------------------------------------------
-
-if st.session_state.completed_runs:
-    st.subheader("Completed this session")
-    for rid in st.session_state.completed_runs:
-        _render_run_card(rid, is_active=False)
+st.session_state.active_runs = still_active
 
 # ---------------------------------------------------------------------------
-# History
+# Two-column layout
 # ---------------------------------------------------------------------------
 
-st.divider()
-st.subheader("Recent crawl history")
-history = repo.list_runs(limit=20)
-if not history:
-    st.info("No prior crawls yet.")
-else:
-    rows = []
-    for r in history:
-        status_html = (
-            f'<span class="badge badge-{r.status.value}">{r.status.value}</span>'
+col_list, col_detail = st.columns([2, 3], gap="large")
+
+# ---- LEFT: master list ----
+with col_list:
+    st.title("crawllmer")
+    st.markdown(
+        '<p class="app-subtitle">Generate spec-compliant llms.txt for any website</p>',
+        unsafe_allow_html=True,
+    )
+
+    # URL input
+    url_col, btn_col = st.columns([4, 1])
+    with url_col:
+        url = st.text_input(
+            "Website URL",
+            placeholder="https://example.com",
+            label_visibility="collapsed",
         )
-        rows.append(
-            {
-                "Host": r.hostname,
-                "Status": r.status.value,
-                "Score": f"{r.score:.1%}" if r.score is not None else "--",
-                "Created": r.created_at.strftime("%Y-%m-%d %H:%M"),
-            }
+    with btn_col:
+        submitted = st.button("Crawl", use_container_width=True, type="primary")
+
+    if submitted:
+        if not url:
+            st.error("Please provide a URL.")
+        else:
+            try:
+                new_run = pipeline.enqueue_run(url)
+                rid = str(new_run.id)
+                st.session_state.active_runs.append(rid)
+                st.session_state.selected_run = rid
+                has_active = True
+            except ValueError as exc:
+                st.error(f"Invalid URL: {exc}")
+
+    # --- Run list helper ---
+    def _run_button(
+        run: CrawlRun, *, key_prefix: str, items: list[WorkItem] | None = None
+    ) -> None:
+        """Render a compact selectable row for a run."""
+        is_selected = st.session_state.selected_run == str(run.id)
+
+        # Build label
+        score_str = ""
+        if run.score is not None:
+            score_str = f"  {run.score:.0%}"
+        stage_str = ""
+        if items:
+            stage_str = f"  {_current_stage_label(items)}"
+
+        status_icons = {
+            "completed": "✓",
+            "failed": "✗",
+            "running": "▶",
+            "queued": "○",
+        }
+        icon = status_icons.get(run.status.value, "○")
+        label = f"{icon}  {run.hostname}{score_str}{stage_str}"
+        elapsed = _elapsed(run.created_at)
+
+        if st.button(
+            label,
+            key=f"{key_prefix}-{run.id}",
+            use_container_width=True,
+            type="primary" if is_selected else "secondary",
+            help=f"{elapsed} ago",
+        ):
+            st.session_state.selected_run = str(run.id)
+            st.rerun()
+
+    # Active runs
+    if still_active:
+        st.caption("ACTIVE")
+        for rid in still_active:
+            run = repo.get_run(UUID(rid))
+            if run:
+                items = repo.list_work_items(UUID(rid))
+                _run_button(run, key_prefix="active", items=items)
+
+    # Completed this session
+    if st.session_state.completed_runs:
+        st.caption("COMPLETED")
+        for rid in st.session_state.completed_runs:
+            run = repo.get_run(UUID(rid))
+            if run:
+                _run_button(run, key_prefix="done")
+
+    # History
+    history = repo.list_runs(limit=20)
+    session_ids = set(st.session_state.active_runs + st.session_state.completed_runs)
+    history_runs = [r for r in history if str(r.id) not in session_ids]
+    if history_runs:
+        st.caption("HISTORY")
+        for run in history_runs:
+            _run_button(run, key_prefix="hist")
+
+# ---- RIGHT: detail panel ----
+with col_detail:
+    if st.session_state.selected_run:
+        _render_detail_panel(st.session_state.selected_run)
+    else:
+        st.markdown(
+            "<div style='text-align:center; padding: 80px 20px; "
+            "color: #9ca3af;'>"
+            "<p style='font-size: 1.2rem;'>Select a crawl to view details"
+            "</p></div>",
+            unsafe_allow_html=True,
         )
-    st.dataframe(rows, use_container_width=True)
 
 # ---------------------------------------------------------------------------
 # Auto-refresh while crawls are active
