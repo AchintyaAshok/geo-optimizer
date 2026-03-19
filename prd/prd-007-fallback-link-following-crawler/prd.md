@@ -239,14 +239,45 @@ def discover_urls(target_url, ...):
     outputs.append(spider_result)
 ```
 
-### Where It Lives
+### Where It Lives — Module Separation
+
+The codebase has three distinct applications that share core modules:
+
+- **API** (`api/`) — FastAPI REST endpoints
+- **Web App** (`web/`) — Streamlit UI
+- **Indexer** (`indexer/`) — Crawler, spider, page indexing tasks
+
+Currently `web/` conflates API and UI. This PRD introduces `indexer/` and also proposes separating API from UI in a future refactor.
+
+```
+src/crawllmer/
+├── core/              # Shared: errors, observability, config
+├── domain/            # Shared: models, ports
+├── application/       # Shared: orchestrator, queueing, retry, scheduler
+├── adapters/          # Shared: storage
+├── api/               # API application (FastAPI routes) — move from web/app.py
+├── web/               # Web application (Streamlit UI) — keep streamlit_app.py
+├── indexer/           # Indexer application (NEW)
+│   ├── __init__.py
+│   ├── spider.py      # BFS scan, link extraction, spider strategy
+│   ├── page_indexer.py  # index_page task, shared extraction primitive
+│   └── link_filter.py   # Extension filtering, non-content path detection
+├── config.py          # Shared config (add spider settings)
+├── main.py            # FastAPI entrypoint
+├── celery_app.py      # Celery config + task registration (imports indexer tasks)
+└── worker.py          # Celery worker entrypoint
+```
 
 | Component | Location |
 |-----------|----------|
-| BFS scan + link extraction | `src/crawllmer/application/spider.py` (new module) |
-| `crawllmer.index_page` task | `src/crawllmer/celery_app.py` (new task) |
+| BFS scan + link graph | `src/crawllmer/indexer/spider.py` |
+| Link extraction + filtering | `src/crawllmer/indexer/link_filter.py` |
+| `crawllmer.index_page` task | `src/crawllmer/indexer/page_indexer.py` |
 | Spider config settings | `src/crawllmer/config.py` (new fields) |
-| Strategy integration | `src/crawllmer/application/workers.py` (modify `_fallback_seed_strategy`) |
+| Task registration | `src/crawllmer/celery_app.py` (import indexer tasks) |
+| Strategy integration | `src/crawllmer/application/workers.py` (call into `indexer.spider`) |
+
+**Note on api/ separation**: Moving `web/app.py` to `api/` is a separate refactor (not in scope for this PRD) but is called out here as the logical next step. The three applications (API, Web, Indexer) each have their own entry points and can be deployed independently.
 
 ## High Effort Version
 
