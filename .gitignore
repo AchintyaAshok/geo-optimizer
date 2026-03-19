@@ -35,3 +35,7 @@ htmlcov/
 
 # Environment
 .env
+
+# Claude Code worktrees & Playwright
+.claude/worktrees/
+.playwright-mcp/
