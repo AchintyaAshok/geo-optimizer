@@ -184,9 +184,57 @@ Everything in Low Effort, plus:
 - Shareable run result links
 - Export history as JSON/CSV
 
+## Amendment: Replace Session-State Tracking with Database Polling
+
+**Date**: 2026-03-19
+**Problem**: The Streamlit app tracks active and completed runs in `st.session_state` (`active_runs`, `completed_runs`). This means runs queued directly through the FastAPI API never appear in the UI — the frontend only shows crawls it initiated itself.
+
+**Root cause**: The data flow currently is:
+1. User clicks "Crawl" → `pipeline.enqueue_run()` → `run_id` added to `st.session_state.active_runs`
+2. Poll loop only iterates over `session_state.active_runs`
+3. Runs created via `POST /api/v1/crawls` bypass this session state entirely
+
+**Proposed changes to `streamlit_app.py`**:
+
+### 1. Remove session-state run tracking
+- Delete `st.session_state.active_runs` and `st.session_state.completed_runs`
+- Keep only `st.session_state.selected_run` (UI selection state — this is appropriate for session state)
+
+### 2. Derive run lists from the database
+- Query `repo.list_runs(limit=50)` once per render cycle
+- Split into three groups by status:
+  - **Active**: runs where `status in (queued, running)` — shown under "ACTIVE" heading
+  - **Recent**: runs where `status in (completed, failed)` and `created_at` within last 24 hours — shown under "RECENT" heading
+  - **History**: remaining older completed/failed runs — shown under "HISTORY" heading
+
+### 3. Auto-refresh based on database state
+- Set `has_active = True` if any run in the database has `status in (queued, running)`
+- This means the UI auto-refreshes for API-initiated crawls too
+
+### 4. Auto-select newly created runs
+- After `pipeline.enqueue_run()`, still set `st.session_state.selected_run` to the new run ID
+- This is the only session-state write remaining — just for navigating to the new run
+
+### 5. Configurable refresh rate
+- Add `ui_refresh_seconds: int = 2` to `Settings` in `core/config.py`
+- Env var: `CRAWLLMER_UI_REFRESH_SECONDS` (default 2s)
+- Use this instead of the hardcoded `time.sleep(1)` in the auto-refresh loop
+
+### What stays the same
+- All rendering functions (`_render_detail_panel`, `_render_stage_bar`, `_render_timeline`, `_render_events`, `_render_llms_txt`) — unchanged
+- Helper functions (`_elapsed`, `_duration`, `_stage_state`, `_current_stage_label`) — unchanged
+- CSS, navbar, page config — unchanged
+- Direct `repo` access (no HTTP client needed since Streamlit and API share the same database)
+
+### Files changed
+- `src/crawllmer/core/config.py` — add `ui_refresh_seconds` setting
+- `.env.example` — document new env var
+- `src/crawllmer/app/web/streamlit_app.py` — session state section + run classification section + left column + auto-refresh
+
 ## Approval State
 
 | Status | Date | Notes |
 |--------|------|-------|
 | Draft | 2026-03-18 | Initial draft |
 | Approved | 2026-03-18 | Low effort scope approved |
+| Amendment | 2026-03-19 | Replace session-state tracking with DB polling — pending review |

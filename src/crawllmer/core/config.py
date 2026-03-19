@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # ── Worker ────────────────────────────────────────────────────────
     worker_poll_seconds: int = 2
 
+    # ── UI ─────────────────────────────────────────────────────────────
+    ui_refresh_seconds: int = 2
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
