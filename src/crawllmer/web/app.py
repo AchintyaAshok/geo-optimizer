@@ -92,6 +92,29 @@ def crawl_llms_txt(run_id: UUID):
     return artifact.llms_txt
 
 
+@app.get("/api/v1/crawls/{run_id}/events")
+def crawl_events(run_id: UUID):
+    run = repo.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    events = repo.list_events(run_id)
+    return [
+        {
+            "id": str(event.id),
+            "run_id": str(event.run_id),
+            "name": event.name,
+            "system": event.system,
+            "started_at": event.started_at.isoformat(),
+            "completed_at": (
+                event.completed_at.isoformat() if event.completed_at else None
+            ),
+            "duration": event.duration,
+            "metadata": event.metadata,
+        }
+        for event in events
+    ]
+
+
 @app.get("/api/v1/history")
 def history(host: str | None = None):
     runs = repo.list_runs(hostname=host, limit=50)

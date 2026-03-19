@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from crawllmer.domain.models import (
+    CrawlEvent,
     CrawlRun,
     ExtractedPage,
     GenerationArtifact,
@@ -63,6 +64,12 @@ class CrawlRepository(ABC):
 
     @abstractmethod
     def get_artifact(self, run_id: UUID) -> GenerationArtifact | None: ...
+
+    @abstractmethod
+    def create_event(self, event: CrawlEvent) -> CrawlEvent: ...
+
+    @abstractmethod
+    def list_events(self, run_id: UUID) -> list[CrawlEvent]: ...
 
 
 class QueuePublisher(ABC):

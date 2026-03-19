@@ -19,6 +19,7 @@ from crawllmer.application.workers import (
     score_pages,
 )
 from crawllmer.domain.models import (
+    CrawlEvent,
     CrawlRun,
     GenerationArtifact,
     RunStatus,
@@ -86,6 +87,12 @@ class CrawlPipeline:
         if run is None:
             raise ValueError("run not found")
 
+        run_event = CrawlEvent(
+            run_id=run.id,
+            name="pipeline.run",
+            system="pipeline",
+            metadata={"target_url": run.target_url},
+        )
         with self.telemetry.run_span(str(run.id), run.target_url):
             run.status = RunStatus.running
             self.repository.update_run(run)
@@ -99,6 +106,10 @@ class CrawlPipeline:
                 self.repository.update_run(run)
                 self.telemetry.record_run_outcome("success")
                 log_event("pipeline.run.completed", run_id=run.id, score=run.score)
+                run_event.completed_at = datetime.now(UTC)
+                run_event.metadata["outcome"] = "success"
+                run_event.metadata["score"] = run.score
+                self.repository.create_event(run_event)
                 return run
             except Exception as exc:  # noqa: BLE001
                 run.status = RunStatus.failed
@@ -107,6 +118,10 @@ class CrawlPipeline:
                 self.repository.update_run(run)
                 self.telemetry.record_run_outcome("failure")
                 log_event("pipeline.run.failed", run_id=run.id, error=str(exc))
+                run_event.completed_at = datetime.now(UTC)
+                run_event.metadata["outcome"] = "failure"
+                run_event.metadata["error"] = str(exc)
+                self.repository.create_event(run_event)
                 raise
 
     def _build_stage_plan(self, run: CrawlRun) -> list[StageExecution]:
@@ -181,6 +196,11 @@ class CrawlPipeline:
         """Execute a single stage with work-item + telemetry transition handling."""
         item = self._new_item(run.id, stage_execution.stage, run.target_url)
         stage = stage_execution.stage
+        event = CrawlEvent(
+            run_id=run.id,
+            name=f"stage.{stage.value}",
+            system=stage.value,
+        )
         with self.telemetry.stage_span(str(run.id), stage.value) as span:
             log_event("pipeline.stage.start", run_id=run.id, stage=stage.value)
             try:
@@ -189,6 +209,8 @@ class CrawlPipeline:
                 self.telemetry.record_stage_outcome(stage.value, "success")
                 span.set_attribute("stage.outcome", "success")
                 log_event("pipeline.stage.completed", run_id=run.id, stage=stage.value)
+                event.completed_at = datetime.now(UTC)
+                event.metadata["outcome"] = "success"
             except Exception as exc:  # noqa: BLE001
                 self._fail_item(item, str(exc))
                 self.telemetry.record_stage_outcome(stage.value, "failure")
@@ -199,7 +221,12 @@ class CrawlPipeline:
                     stage=stage.value,
                     error=str(exc),
                 )
+                event.completed_at = datetime.now(UTC)
+                event.metadata["outcome"] = "failure"
+                event.metadata["error"] = str(exc)
                 raise
+            finally:
+                self.repository.create_event(event)
 
     def _new_item(self, run_id: UUID, stage: WorkStage, url: str) -> WorkItem:
         """Create and transition a work item into processing state."""
