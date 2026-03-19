@@ -135,7 +135,7 @@ def index_page_task(url, run_id, provenance):
 
 ### Configuration
 
-All bounds are config-driven via `src/crawllmer/config.py` (pydantic-settings):
+All bounds are config-driven via `src/crawllmer/core/config.py` (pydantic-settings):
 
 | Setting | Env Var | Default | Purpose |
 |---------|---------|---------|---------|
@@ -251,62 +251,101 @@ Currently `web/` conflates API and UI. This PRD introduces `indexer/` and also p
 
 ```
 src/crawllmer/
-├── core/              # Shared: errors, observability, config
-├── domain/            # Shared: models, ports
-├── application/       # Shared: orchestrator, queueing, retry, scheduler
-├── adapters/          # Shared: storage
-├── app/               # Application layer — three distinct runtimes
-│   ├── api/           # REST API (FastAPI)
+├── core/                     # Shared business logic and cross-cutting concerns
+│   ├── config.py             # Pydantic Settings — all env vars (from config.py)
+│   ├── errors.py             # Typed exception hierarchy
+│   ├── orchestrator.py       # CrawlPipeline — 5-stage run lifecycle (from application/)
+│   ├── retry.py              # RetryPolicy — generic retry wrapper (from application/)
+│   ├── scheduler.py          # HostRateLimiter — per-host rate limiting (from application/)
+│   ├── scoring.py            # score_pages — quality scoring (from application/workers.py)
+│   ├── generation.py         # generate_llms_txt — llms.txt assembly (from application/workers.py)
+│   └── observability/        # Telemetry, pipeline metrics, structured events
+├── domain/                   # Pure domain: models, ports
+│   ├── models.py
+│   └── ports.py
+├── adapters/                 # Infrastructure adapters
+│   └── storage.py            # SQLModel/SQLite persistence
+├── app/                      # Three distinct application runtimes
+│   ├── api/                  # REST API (FastAPI)
 │   │   ├── __init__.py
-│   │   └── routes.py     # All API endpoints (move from web/app.py)
-│   ├── web/           # Streamlit UI
+│   │   ├── main.py           # FastAPI app instance + lifespan (from main.py)
+│   │   └── routes.py         # All API endpoints (from web/app.py)
+│   ├── web/                  # Streamlit UI
 │   │   ├── __init__.py
 │   │   ├── streamlit_app.py
 │   │   └── runtime.py
-│   └── indexer/       # Crawler, spider, task processing
+│   └── indexer/              # Crawler, spider, task processing
 │       ├── __init__.py
-│       ├── app.py            # Celery app instance + config (importable, no side effects)
+│       ├── app.py            # Celery app instance (importable, no side effects)
 │       ├── tasks.py          # Task definitions (@app.task: process_run, index_page, spider)
-│       ├── spider.py         # BFS scan, link graph building
-│       ├── page_indexer.py   # Single-page fetch + extract (shared primitive)
-│       ├── link_filter.py    # Extension filtering, non-content path detection
+│       ├── queueing.py       # CeleryQueuePublisher (from application/queueing.py)
+│       ├── discovery.py      # discover_urls, strategy chain (from application/workers.py)
+│       ├── spider.py         # BFS scan, link graph building (NEW)
+│       ├── page_indexer.py   # Single-page fetch + extract (from application/workers.py)
+│       ├── link_filter.py    # Extension filtering, non-content path detection (NEW)
 │       └── __main__.py       # Worker entrypoint (python -m crawllmer.app.indexer)
-├── config.py          # Shared config (add spider settings)
-└── main.py            # FastAPI entrypoint (imports app.api)
 ```
 
-The three applications live under `app/` as sibling packages. Each has its own entrypoint and can be deployed independently, but they share `core/`, `domain/`, `application/`, and `adapters/`.
+The `application/` package is **eliminated entirely**. Its contents distribute cleanly:
+
+| From `application/` | To | Rationale |
+|---------------------|-----|-----------|
+| `orchestrator.py` | `core/orchestrator.py` | Central business logic, used by API and indexer |
+| `retry.py` | `core/retry.py` | Cross-cutting utility |
+| `scheduler.py` | `core/scheduler.py` | Cross-cutting utility |
+| `workers.py` → scoring | `core/scoring.py` | Pure domain logic (no I/O) |
+| `workers.py` → generation | `core/generation.py` | Pure domain logic (no I/O) |
+| `workers.py` → discovery | `app/indexer/discovery.py` | Indexing concern (makes HTTP requests) |
+| `workers.py` → extraction | `app/indexer/page_indexer.py` | Indexing concern (fetches + parses pages) |
+| `queueing.py` | `app/indexer/queueing.py` | Celery-specific infrastructure |
+
+The three applications live under `app/` as sibling packages. Each has its own entrypoint and can be deployed independently, but they share `core/`, `domain/`, and `adapters/`.
 
 The indexer follows [Celery's recommended project layout](https://docs.celeryq.dev/en/stable/getting-started/next-steps.html#proj-layout):
 - **`app.py`** — Celery app instance. Importable from anywhere (e.g., `queueing.py` uses `send_task`) without triggering a worker start.
 - **`tasks.py`** — Task functions decorated with `@app.task`. Current `process_run_task` plus new `index_page` and `spider` tasks.
 - **`__main__.py`** — Worker bootstrap (`python -m crawllmer.app.indexer` starts the worker).
 
-Beyond the spider, other indexing concerns that belong here:
-- **Content extraction** — `_extract_title`, `_extract_description` (currently in `application/workers.py`) are indexing logic, not orchestration
+Beyond the spider, other indexing concerns that live here:
+- **Content extraction** — `_extract_title`, `_extract_description` in `page_indexer.py`
 - **Markdown extraction** — future `.md` content parser for sites like vite.dev
 - **Freshness/validators** — ETag/If-Modified-Since conditional request logic
+- **Discovery strategies** — llms probe, robots hints, sitemap parsing, spider
 
 | Component | Location |
 |-----------|----------|
+| Pipeline orchestration | `src/crawllmer/core/orchestrator.py` |
+| Retry + rate limiting | `src/crawllmer/core/retry.py`, `core/scheduler.py` |
+| Scoring | `src/crawllmer/core/scoring.py` |
+| llms.txt generation | `src/crawllmer/core/generation.py` |
+| FastAPI app + lifespan | `src/crawllmer/app/api/main.py` |
 | API routes | `src/crawllmer/app/api/routes.py` |
 | Streamlit UI | `src/crawllmer/app/web/streamlit_app.py` |
 | Celery app instance | `src/crawllmer/app/indexer/app.py` |
 | Task definitions | `src/crawllmer/app/indexer/tasks.py` |
 | Worker entrypoint | `src/crawllmer/app/indexer/__main__.py` |
-| BFS scan + link graph | `src/crawllmer/app/indexer/spider.py` |
-| Single-page indexing | `src/crawllmer/app/indexer/page_indexer.py` |
-| Link extraction + filtering | `src/crawllmer/app/indexer/link_filter.py` |
-| Spider config settings | `src/crawllmer/config.py` (new fields) |
+| Queue publisher | `src/crawllmer/app/indexer/queueing.py` |
+| Discovery strategies | `src/crawllmer/app/indexer/discovery.py` |
+| BFS spider | `src/crawllmer/app/indexer/spider.py` |
+| Page fetch + extract | `src/crawllmer/app/indexer/page_indexer.py` |
+| Link filtering | `src/crawllmer/app/indexer/link_filter.py` |
+| Config (pydantic-settings) | `src/crawllmer/core/config.py` |
 
 **Migration path**:
+- `application/orchestrator.py` → `core/orchestrator.py`
+- `application/retry.py` → `core/retry.py`
+- `application/scheduler.py` → `core/scheduler.py`
+- `application/workers.py` → split into `core/scoring.py`, `core/generation.py`, `app/indexer/discovery.py`, `app/indexer/page_indexer.py`
+- `application/queueing.py` → `app/indexer/queueing.py`
 - `web/app.py` → `app/api/routes.py`
 - `web/streamlit_app.py` + `web/runtime.py` → `app/web/`
-- `celery_app.py` → `app/indexer/app.py` (Celery instance) + `app/indexer/tasks.py` (task functions)
+- `celery_app.py` → `app/indexer/app.py` + `app/indexer/tasks.py`
 - `worker.py` → `app/indexer/__main__.py`
-- `application/workers.py` extraction functions → `app/indexer/page_indexer.py`
-- `main.py` updates to import from `app.api`
+- `config.py` → `core/config.py`
+- `main.py` → `app/api/main.py`
+- Makefile `run-api` → `uvicorn crawllmer.app.api.main:app`
 - Makefile `run-worker` → `python -m crawllmer.app.indexer`
+- `application/` directory deleted
 
 ## High Effort Version
 
