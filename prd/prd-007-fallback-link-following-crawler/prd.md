@@ -256,44 +256,57 @@ src/crawllmer/
 ├── application/       # Shared: orchestrator, queueing, retry, scheduler
 ├── adapters/          # Shared: storage
 ├── app/               # Application layer — three distinct runtimes
-│   ├── api/           # REST API (FastAPI routes)
+│   ├── api/           # REST API (FastAPI)
 │   │   ├── __init__.py
-│   │   └── routes.py  # All API endpoints (move from web/app.py)
+│   │   └── routes.py     # All API endpoints (move from web/app.py)
 │   ├── web/           # Streamlit UI
 │   │   ├── __init__.py
 │   │   ├── streamlit_app.py
 │   │   └── runtime.py
 │   └── indexer/       # Crawler, spider, task processing
 │       ├── __init__.py
-│       ├── spider.py         # BFS scan, link extraction, spider strategy
-│       ├── page_indexer.py   # index_page logic, shared extraction primitive
+│       ├── app.py            # Celery app instance + config (importable, no side effects)
+│       ├── tasks.py          # Task definitions (@app.task: process_run, index_page, spider)
+│       ├── spider.py         # BFS scan, link graph building
+│       ├── page_indexer.py   # Single-page fetch + extract (shared primitive)
 │       ├── link_filter.py    # Extension filtering, non-content path detection
-│       └── taskprocessor.py  # Celery app, task definitions, worker entrypoint
+│       └── __main__.py       # Worker entrypoint (python -m crawllmer.app.indexer)
 ├── config.py          # Shared config (add spider settings)
 └── main.py            # FastAPI entrypoint (imports app.api)
 ```
 
 The three applications live under `app/` as sibling packages. Each has its own entrypoint and can be deployed independently, but they share `core/`, `domain/`, `application/`, and `adapters/`.
 
-`celery_app.py` and `worker.py` move into `app/indexer/taskprocessor.py`. The module is named `taskprocessor` (not `celery_app`) because the task processing abstraction could change without affecting the rest of the codebase.
+The indexer follows [Celery's recommended project layout](https://docs.celeryq.dev/en/stable/getting-started/next-steps.html#proj-layout):
+- **`app.py`** — Celery app instance. Importable from anywhere (e.g., `queueing.py` uses `send_task`) without triggering a worker start.
+- **`tasks.py`** — Task functions decorated with `@app.task`. Current `process_run_task` plus new `index_page` and `spider` tasks.
+- **`__main__.py`** — Worker bootstrap (`python -m crawllmer.app.indexer` starts the worker).
+
+Beyond the spider, other indexing concerns that belong here:
+- **Content extraction** — `_extract_title`, `_extract_description` (currently in `application/workers.py`) are indexing logic, not orchestration
+- **Markdown extraction** — future `.md` content parser for sites like vite.dev
+- **Freshness/validators** — ETag/If-Modified-Since conditional request logic
 
 | Component | Location |
 |-----------|----------|
 | API routes | `src/crawllmer/app/api/routes.py` |
 | Streamlit UI | `src/crawllmer/app/web/streamlit_app.py` |
-| Celery app + all task definitions | `src/crawllmer/app/indexer/taskprocessor.py` |
+| Celery app instance | `src/crawllmer/app/indexer/app.py` |
+| Task definitions | `src/crawllmer/app/indexer/tasks.py` |
+| Worker entrypoint | `src/crawllmer/app/indexer/__main__.py` |
 | BFS scan + link graph | `src/crawllmer/app/indexer/spider.py` |
+| Single-page indexing | `src/crawllmer/app/indexer/page_indexer.py` |
 | Link extraction + filtering | `src/crawllmer/app/indexer/link_filter.py` |
-| Page indexing logic | `src/crawllmer/app/indexer/page_indexer.py` |
 | Spider config settings | `src/crawllmer/config.py` (new fields) |
-| Strategy integration | `src/crawllmer/application/workers.py` (call into `app.indexer.spider`) |
 
 **Migration path**:
 - `web/app.py` → `app/api/routes.py`
 - `web/streamlit_app.py` + `web/runtime.py` → `app/web/`
-- `celery_app.py` + `worker.py` → `app/indexer/taskprocessor.py`
+- `celery_app.py` → `app/indexer/app.py` (Celery instance) + `app/indexer/tasks.py` (task functions)
+- `worker.py` → `app/indexer/__main__.py`
+- `application/workers.py` extraction functions → `app/indexer/page_indexer.py`
 - `main.py` updates to import from `app.api`
-- Makefile `run-worker` → `python -m crawllmer.app.indexer.taskprocessor`
+- Makefile `run-worker` → `python -m crawllmer.app.indexer`
 
 ## High Effort Version
 
