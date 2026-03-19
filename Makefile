@@ -26,7 +26,7 @@ fix: format lint-fix  ## Auto-format + auto-fix lint issues
 # ─── Run (Local) ─────────────────────────────────────────────────────────────
 
 run-api:  ## Start FastAPI server on :8000 (with hot-reload)
-	uv run uvicorn crawllmer.main:app --host 0.0.0.0 --port 8000 --reload
+	uv run uvicorn crawllmer.app.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 run-ui:  ## Start Streamlit UI on :8501
 	uv run streamlit run src/crawllmer/app/web/streamlit_app.py --server.address 0.0.0.0 --server.port 8501
@@ -35,7 +35,7 @@ run-worker:  ## Start Celery worker (SQLite broker by default)
 	uv run python -m crawllmer.app.indexer
 
 run-dev:  ## Start API + UI + worker together (Ctrl-C stops all)
-	bash -lc 'trap "kill 0" EXIT; uv run uvicorn crawllmer.main:app --host 0.0.0.0 --port 8000 --reload & uv run streamlit run src/crawllmer/app/web/streamlit_app.py --server.address 0.0.0.0 --server.port 8501 & uv run python -m crawllmer.app.indexer & wait'
+	bash -lc 'trap "kill 0" EXIT; uv run uvicorn crawllmer.app.api.main:app --host 0.0.0.0 --port 8000 --reload & uv run streamlit run src/crawllmer/app/web/streamlit_app.py --server.address 0.0.0.0 --server.port 8501 & uv run python -m crawllmer.app.indexer & wait'
 
 run-observability:  ## Start full stack with OTEL Collector, Jaeger, Prometheus, Grafana
 	docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build

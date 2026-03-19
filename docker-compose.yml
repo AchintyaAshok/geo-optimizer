@@ -11,7 +11,7 @@ services:
       CRAWLLMER_CELERY_BROKER_URL: sqla+sqlite:////app/data/celery-broker.db
       CRAWLLMER_CELERY_RESULT_BACKEND: db+sqlite:////app/data/celery-results.db
     command: >
-      bash -lc "pip install uv && uv sync && uv run uvicorn crawllmer.main:app --host 0.0.0.0 --port 8000"
+      bash -lc "pip install uv && uv sync && uv run uvicorn crawllmer.app.api.main:app --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
     healthcheck:
