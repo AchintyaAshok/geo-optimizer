@@ -1,0 +1,2 @@
+# Tasks for this PRD go here
+# Use: PROJECT_ROOT=. <skill-scripts>/new-task.sh "prd-XXX-name" "Task Name"
