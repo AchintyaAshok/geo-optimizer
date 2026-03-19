@@ -35,6 +35,21 @@ class Settings(BaseSettings):
     # ── Worker ────────────────────────────────────────────────────────
     worker_poll_seconds: int = 2
 
+    # ── Spider (fallback crawler) ────────────────────────────────────
+    spider_max_depth: int = 3
+    spider_max_scan_pages: int = 100
+    spider_max_index_pages: int = 50
+    spider_include_extensions: str = ".html,.htm,.txt,.md,"
+    spider_timeout_per_page: int = 5
+
+    @property
+    def spider_extensions_set(self) -> set[str]:
+        """Parse include_extensions CSV into a set.
+
+        Trailing comma means extensionless paths (empty string) are included.
+        """
+        return {ext.strip() for ext in self.spider_include_extensions.split(",")}
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
