@@ -1,4 +1,4 @@
-from crawllmer.application.workers import _extract_description, _extract_title
+from crawllmer.app.indexer.workers import _extract_description, _extract_title
 
 
 def test_extracts_title_and_description_from_head_meta() -> None:

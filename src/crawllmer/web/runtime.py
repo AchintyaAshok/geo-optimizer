@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from crawllmer.adapters.storage import default_repository
-from crawllmer.application.orchestrator import CrawlPipeline
-from crawllmer.application.queueing import CeleryQueuePublisher
+from crawllmer.app.indexer.queueing import CeleryQueuePublisher
 from crawllmer.core.config import get_settings
+from crawllmer.core.orchestrator import CrawlPipeline
 
 _settings = get_settings()
 

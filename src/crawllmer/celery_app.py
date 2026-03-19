@@ -6,11 +6,11 @@ from uuid import UUID
 from celery.signals import worker_init
 
 from crawllmer.adapters.storage import default_repository
-from crawllmer.application.orchestrator import CrawlPipeline
-from crawllmer.application.queueing import CeleryQueuePublisher, build_celery_app
+from crawllmer.app.indexer.queueing import CeleryQueuePublisher, build_celery_app
 from crawllmer.core import PipelineProcessingError
 from crawllmer.core.config import get_settings
 from crawllmer.core.observability import setup_telemetry
+from crawllmer.core.orchestrator import CrawlPipeline
 
 logger = logging.getLogger("crawllmer.celery")
 

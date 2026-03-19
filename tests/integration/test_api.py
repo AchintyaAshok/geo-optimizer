@@ -40,7 +40,7 @@ def test_enqueue_and_process_run(monkeypatch) -> None:
                 {"etag": '"123"'},
             )
 
-    monkeypatch.setattr("crawllmer.application.workers.httpx.Client", FakeHttpClient)
+    monkeypatch.setattr("crawllmer.app.indexer.workers.httpx.Client", FakeHttpClient)
     client = TestClient(app)
 
     enqueue = client.post("/api/v1/crawls", json={"url": "https://api-example.com"})
@@ -75,7 +75,7 @@ def test_crawl_events_are_persisted_and_retrievable(monkeypatch) -> None:
                 ),
             )
 
-    monkeypatch.setattr("crawllmer.application.workers.httpx.Client", FakeHttpClient)
+    monkeypatch.setattr("crawllmer.app.indexer.workers.httpx.Client", FakeHttpClient)
     client = TestClient(app)
 
     enqueue = client.post("/api/v1/crawls", json={"url": "https://events-example.com"})

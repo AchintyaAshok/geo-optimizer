@@ -8,9 +8,9 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from crawllmer.adapters.storage import SqliteCrawlRepository
-from crawllmer.application.orchestrator import CrawlPipeline
 from crawllmer.core import PipelineProcessingError
 from crawllmer.core.observability import PipelineTelemetry
+from crawllmer.core.orchestrator import CrawlPipeline
 from crawllmer.domain.models import RunStatus, WorkItemState
 from crawllmer.domain.ports import QueuePublisher
 
@@ -108,7 +108,7 @@ def _setup_otel():
 
 def test_pipeline_happy_path_emits_spans_and_metrics(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "crawllmer.application.workers.httpx.Client", _success_http_client()
+        "crawllmer.app.indexer.workers.httpx.Client", _success_http_client()
     )
     span_exporter, metric_reader = _setup_otel()
 
@@ -153,7 +153,7 @@ def test_pipeline_failure_path_marks_failed_stage_and_run(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "crawllmer.application.workers.httpx.Client", _failing_http_client()
+        "crawllmer.app.indexer.workers.httpx.Client", _failing_http_client()
     )
     _setup_otel()
 

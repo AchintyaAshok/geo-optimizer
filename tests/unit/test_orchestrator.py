@@ -3,8 +3,8 @@ from __future__ import annotations
 from uuid import UUID
 
 from crawllmer.adapters.storage import SqliteCrawlRepository
-from crawllmer.application.orchestrator import CrawlPipeline
 from crawllmer.core import RunNotFoundError
+from crawllmer.core.orchestrator import CrawlPipeline
 from crawllmer.domain.ports import QueuePublisher
 
 
@@ -80,7 +80,7 @@ def test_pipeline_completes_and_generates_deterministic_artifact(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "crawllmer.application.workers.httpx.Client", _fake_http_client()
+        "crawllmer.app.indexer.workers.httpx.Client", _fake_http_client()
     )
     repo = SqliteCrawlRepository(db_url=f"sqlite:///{tmp_path}/test.db")
     pipeline = CrawlPipeline(repository=repo, queue=StubQueuePublisher())

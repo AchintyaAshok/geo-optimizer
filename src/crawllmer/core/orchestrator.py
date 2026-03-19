@@ -9,9 +9,7 @@ from uuid import UUID
 
 from opentelemetry import trace
 
-from crawllmer.application.retry import RetryPolicy
-from crawllmer.application.scheduler import HostRateLimiter
-from crawllmer.application.workers import (
+from crawllmer.app.indexer.workers import (
     canonicalize_and_dedup,
     discover_urls,
     extract_metadata,
@@ -28,6 +26,8 @@ from crawllmer.core.observability import (
     RunCompletedEvent,
     log_event,
 )
+from crawllmer.core.retry import RetryPolicy
+from crawllmer.core.scheduler import HostRateLimiter
 from crawllmer.domain.models import (
     CrawlEvent,
     CrawlRun,
