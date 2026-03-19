@@ -39,29 +39,80 @@ MAX_PREVIEW_LINES = 1000
 st.markdown(
     """
     <style>
+    /* ---- hide default streamlit header/footer ---- */
+    header[data-testid="stHeader"] { display: none !important; }
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+
+    /* ---- navbar ---- */
+    .navbar {
+        display: flex; align-items: center;
+        padding: 10px 24px;
+        border-bottom: 1px solid rgba(128,128,128,.2);
+        margin: -1rem -1rem 1rem -1rem;
+        gap: 16px;
+    }
+    .navbar-brand {
+        font-size: 1.35rem; font-weight: 800;
+        letter-spacing: -0.5px;
+    }
+    .navbar-tagline {
+        font-size: .85rem; color: #9ca3af;
+        flex: 1;
+    }
+    .navbar-menu-btn {
+        background: none; border: 1px solid rgba(128,128,128,.3);
+        border-radius: 6px; padding: 6px 10px; cursor: pointer;
+        font-size: 1.1rem; color: inherit; line-height: 1;
+    }
+    .navbar-menu-btn:hover { background: rgba(128,128,128,.1); }
+    /* hamburger dropdown */
+    .menu-dropdown {
+        position: relative; display: inline-block;
+    }
+    .menu-items {
+        display: none; position: absolute; right: 0; top: 100%;
+        background: var(--background-color, #fff);
+        border: 1px solid rgba(128,128,128,.2);
+        border-radius: 8px; min-width: 180px;
+        box-shadow: 0 4px 12px rgba(0,0,0,.12);
+        z-index: 999; padding: 4px 0;
+    }
+    .menu-dropdown:hover .menu-items,
+    .menu-dropdown:focus-within .menu-items { display: block; }
+    .menu-item {
+        display: block; padding: 8px 16px; font-size: .85rem;
+        color: #9ca3af; cursor: not-allowed; text-decoration: none;
+        border: none; background: none; width: 100%; text-align: left;
+    }
+    .menu-item-label { margin-left: 8px; }
+    .menu-item-badge {
+        font-size: .65rem; background: rgba(128,128,128,.15);
+        padding: 1px 6px; border-radius: 8px; margin-left: 6px;
+    }
+
+    /* ---- stage pills ---- */
     .stage-pill {
-        display: inline-block;
-        padding: 2px 10px;
-        border-radius: 12px;
-        font-size: .78rem;
-        font-weight: 600;
-        margin-right: 4px;
+        display: inline-block; padding: 2px 10px;
+        border-radius: 12px; font-size: .78rem;
+        font-weight: 600; margin-right: 4px;
     }
     .stage-done  { background: #166534; color: #bbf7d0; }
     .stage-active{ background: #1e40af; color: #bfdbfe; }
     .stage-pend  { background: #374151; color: #9ca3af; }
     .stage-fail  { background: #991b1b; color: #fecaca; }
+
+    /* ---- badges ---- */
     .badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 10px;
-        font-size: .75rem;
-        font-weight: 600;
+        display: inline-block; padding: 2px 8px;
+        border-radius: 10px; font-size: .75rem; font-weight: 600;
     }
     .badge-completed { background: #166534; color: #bbf7d0; }
     .badge-failed    { background: #991b1b; color: #fecaca; }
     .badge-running   { background: #1e40af; color: #bfdbfe; }
     .badge-queued    { background: #374151; color: #9ca3af; }
+
+    /* ---- timeline ---- */
     .tl-row {
         display: flex; align-items: center; gap: 10px;
         padding: 4px 0; font-size: .85rem;
@@ -71,25 +122,51 @@ st.markdown(
     .tl-stage { font-weight: 600; min-width: 110px; }
     .tl-dur { color: #9ca3af; min-width: 70px; }
     .tl-err { color: #f87171; font-size: .8rem; }
-    .app-subtitle {
-        font-size: 1.05rem; color: #9ca3af;
-        margin-top: -12px; margin-bottom: 20px;
-    }
-    /* run list row */
-    .run-row {
-        display: flex; align-items: center; gap: 8px;
-        padding: 6px 8px; border-radius: 6px; cursor: pointer;
-        border-bottom: 1px solid rgba(128,128,128,.1);
-    }
-    .run-row:hover { background: rgba(128,128,128,.08); }
-    .run-host { font-weight: 600; flex: 1; }
-    .run-meta { font-size: .8rem; color: #9ca3af; }
-    .run-score { font-size: .85rem; font-weight: 600; }
+
+    /* ---- detail panel ---- */
     .detail-header {
-        font-size: 1.4rem; font-weight: 700;
-        margin-bottom: 4px;
+        font-size: 1.4rem; font-weight: 700; margin-bottom: 4px;
     }
     </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------------------------------
+# Navbar
+# ---------------------------------------------------------------------------
+
+st.markdown(
+    """
+    <div class="navbar">
+        <span class="navbar-brand">crawllmer</span>
+        <span class="navbar-tagline">
+            Generate spec-compliant llms.txt for any website
+        </span>
+        <div class="menu-dropdown">
+            <button class="navbar-menu-btn" aria-label="Menu">
+                &#9776;
+            </button>
+            <div class="menu-items">
+                <div class="menu-item">
+                    &#9881;<span class="menu-item-label">Settings</span>
+                    <span class="menu-item-badge">soon</span>
+                </div>
+                <div class="menu-item">
+                    &#128100;<span class="menu-item-label">Account</span>
+                    <span class="menu-item-badge">soon</span>
+                </div>
+                <div class="menu-item">
+                    &#128179;<span class="menu-item-label">Billing</span>
+                    <span class="menu-item-badge">soon</span>
+                </div>
+                <div class="menu-item">
+                    &#128218;<span class="menu-item-label">API Docs</span>
+                    <span class="menu-item-badge">soon</span>
+                </div>
+            </div>
+        </div>
+    </div>
     """,
     unsafe_allow_html=True,
 )
@@ -363,12 +440,6 @@ col_list, col_detail = st.columns([2, 3], gap="large")
 
 # ---- LEFT: master list ----
 with col_list:
-    st.title("crawllmer")
-    st.markdown(
-        '<p class="app-subtitle">Generate spec-compliant llms.txt for any website</p>',
-        unsafe_allow_html=True,
-    )
-
     # URL input
     url_col, btn_col = st.columns([4, 1])
     with url_col:
