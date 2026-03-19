@@ -65,7 +65,7 @@ restart: stop clean-db run-dev  ## Stop servers, wipe DBs, and start fresh
 crawl-status:  ## Show status of all crawl runs (add -v for events detail)
 	@python3 scripts/check-crawl-status.py $(ARGS)
 
-inttest:  ## Submit integration test URLs (CATEGORY=a|b|c, default: all)
+inttest:  ## Submit integration test URLs (CATEGORY=llmstxt-sites|sitemap-sites|noinfo-sites)
 	@uv run python scripts/submit-inttest.py $(CATEGORY)
 
 inttest-list:  ## List integration test URLs without submitting

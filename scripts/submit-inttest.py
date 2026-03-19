@@ -72,7 +72,7 @@ def main() -> None:
     if not list_only:
         print()
         print("All submitted. Check status with: make crawl-status")
-        print("Verbose:                          make crawl-status ARGS=\"-v\"")
+        print('Verbose:                          make crawl-status ARGS="-v"')
 
 
 if __name__ == "__main__":

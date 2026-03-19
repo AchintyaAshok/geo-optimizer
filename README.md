@@ -52,7 +52,7 @@ crawllmer runs a five-stage pipeline for every URL:
 URL → Discovery → Extraction → Canonicalization → Scoring → Generation → llms.txt
 ```
 
-1. **Discovery** — Probes `/llms.txt`, `robots.txt`, `sitemap.xml`, then falls back to the seed URL
+1. **Discovery** — Probes `/llms.txt`, `robots.txt`, `sitemap.xml`; falls back to BFS spider crawl
 2. **Extraction** — Fetches each discovered page and extracts titles and descriptions from `<head>` meta, Open Graph, Twitter cards, and JSON-LD
 3. **Canonicalization** — Normalizes URLs and deduplicates entries, keeping the highest-confidence metadata
 4. **Scoring** — Computes a quality score: `(coverage × 0.4) + (confidence × 0.4) + (redundancy × 0.2)`
@@ -121,6 +121,10 @@ cp .env.example .env
 | `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery result backend |
 | `CRAWLLMER_LOG_LEVEL` | `DEBUG` | Logging severity (DEBUG/INFO/WARNING/ERROR/CRITICAL) |
 | `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval |
+| `CRAWLLMER_UI_REFRESH_SECONDS` | `2` | Streamlit UI polling interval |
+| `CRAWLLMER_SPIDER_MAX_DEPTH` | `3` | Max link hops for fallback spider |
+| `CRAWLLMER_SPIDER_MAX_SCAN_PAGES` | `100` | Max pages to scan in spider Phase 1 |
+| `CRAWLLMER_SPIDER_MAX_INDEX_PAGES` | `50` | Max pages to index in spider Phase 2 |
 
 For Redis: set broker to `redis://localhost:6379/0` and result backend to `redis://localhost:6379/1`.
 
@@ -206,7 +210,10 @@ tests/
 │   ├── test_workers.py          # Discovery, extraction, scoring functions
 │   ├── test_errors.py           # Typed error hierarchy
 │   ├── test_events.py           # Structured observability events
-│   └── test_config_log_level.py # Configuration and logging
+│   ├── test_config_log_level.py # Configuration, logging, spider settings
+│   ├── test_link_filter.py      # BeautifulSoup link extraction + filtering
+│   ├── test_spider.py           # BFS spider scan + ranking
+│   └── test_page_indexer.py     # Single-page fetch + extract
 └── integration/
     ├── test_api.py              # FastAPI endpoint tests
     └── test_pipeline_flow.py    # End-to-end pipeline with mocked HTTP
@@ -218,10 +225,14 @@ tests/
 make sync                 # install/sync dependencies
 make format               # auto-format with ruff
 make lint                 # lint with ruff
+make fix                  # format + auto-fix lint issues
 make check                # format → lint → test (run before committing)
+make test-one T=path      # run a single test
 make clean                # remove venv, caches, and DB files
 make stop                 # kill running server processes
 make restart              # stop → clean DBs → start fresh
+make inttest              # submit integration test URLs
+make crawl-status         # show status of all crawl runs
 ```
 
 Full Makefile reference: run `make help` or see the [Makefile](Makefile) (all targets are commented).
