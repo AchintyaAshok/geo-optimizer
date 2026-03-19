@@ -47,3 +47,16 @@ def process_run_task(run_id: str, work_item_id: str | None = None) -> dict:  # n
         )
         raise
     return {"run_id": str(run.id), "status": run.status.value}
+
+
+@celery_app.task(name="crawllmer.index_page")
+def index_page_task(url: str, run_id: str, provenance: str = "crawl") -> dict:
+    """Celery task: fetch one page, extract metadata, persist."""
+    from crawllmer.app.indexer.page_indexer import index_page
+
+    repository = get_storage()
+    page = index_page(url=url, run_id=UUID(run_id), provenance=provenance)
+    if page is None:
+        return {"url": url, "status": "failed"}
+    repository.upsert_extracted_pages([page])
+    return {"url": url, "status": "indexed", "title": page.title}

@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     # ── Worker ─────────────────────────────────────────────────────────
     worker_poll_seconds: int = 2
 
+    # ── UI ─────────────────────────────────────────────────────────────
+    ui_refresh_seconds: int = 2
+
+    # ── Spider (fallback crawler) ──────────────────────────────────────
+    spider_max_depth: int = 3
+    spider_max_scan_pages: int = 100
+    spider_max_index_pages: int = 50
+    spider_include_extensions: str = ".html,.htm,.txt,.md,"
+    spider_timeout_per_page: int = 5
+
     @model_validator(mode="after")
     def _validate_storage_config(self) -> Settings:
         """Ensure Postgres credentials are provided when pgsql is selected."""
@@ -69,6 +79,14 @@ class Settings(BaseSettings):
         if self.storage_backend == "pgsql":
             return {"pool_pre_ping": True, "pool_size": 5}
         return {"connect_args": {"check_same_thread": False}}
+
+    @property
+    def spider_extensions_set(self) -> set[str]:
+        """Parse include_extensions CSV into a set.
+
+        Trailing comma means extensionless paths (empty string) are included.
+        """
+        return {ext.strip() for ext in self.spider_include_extensions.split(",")}
 
 
 @lru_cache(maxsize=1)

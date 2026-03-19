@@ -1,4 +1,4 @@
-.PHONY: sync test lint lint-fix lint-path lint-fix-path format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart crawl-status help
+.PHONY: sync test test-one lint lint-fix lint-path lint-fix-path format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart crawl-status inttest help
 
 # ─── Setup ───────────────────────────────────────────────────────────────────
 
@@ -9,6 +9,9 @@ sync:  ## Install/sync all dependencies via uv
 
 test:  ## Run test suite (pytest -v -s)
 	uv run pytest -v -s
+
+test-one:  ## Run a single test (make test-one T=tests/unit/test_foo.py::test_bar)
+	uv run pytest -v -s $(T)
 
 lint:  ## Lint code with ruff
 	uv run ruff check .
@@ -67,6 +70,9 @@ restart: stop clean-db run-dev  ## Stop servers, wipe DBs, and start fresh
 
 crawl-status:  ## Show status of all crawl runs (add -v for events detail)
 	@python3 scripts/check-crawl-status.py $(ARGS)
+
+inttest:  ## Submit integration test URLs (CATEGORY=a|b|c|all, default: all)
+	@bash scripts/submit-inttest.sh $(CATEGORY)
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 

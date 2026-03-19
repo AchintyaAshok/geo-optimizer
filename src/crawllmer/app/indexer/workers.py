@@ -28,15 +28,19 @@ from crawllmer.domain.models import (
 def discover_urls(
     target_url: str,
     client: httpx.Client | None = None,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> list[tuple[str, str]]:
     """Run hierarchical discovery strategies and return deduplicated URL candidates.
 
-    Strategy order follows PRD guidance:
+    Strategy order:
     1) direct llms probe,
     2) robots hints,
     3) sitemap traversal,
-    4) bounded fallback seed.
+    4) BFS spider (fallback — follows links from seed URL).
     """
+    from crawllmer.app.indexer.spider import spider_scan
+    from crawllmer.core.config import get_settings
+
     target = WebsiteTarget(url=target_url, hostname=urlparse(target_url).netloc)
     context = StrategyInput(target=target, run_id=uuid4())
     requester = client or httpx.Client(timeout=8.0)
@@ -53,7 +57,21 @@ def discover_urls(
         discovered = _collect_discovered(outputs)
 
     if not discovered:
-        outputs.append(_fallback_seed_strategy(context))
+        # Tier 4: BFS spider — scan the site following links
+        settings = get_settings()
+        ranked = spider_scan(target_url, settings, requester, on_event=on_event)
+        index_count = min(len(ranked), settings.spider_max_index_pages)
+        spider_urls = [
+            (url, DiscoverySource.crawl)
+            for url, _inlinks, _depth in ranked[:index_count]
+        ]
+        outputs.append(
+            StrategyOutput(
+                strategy_id="spider",
+                success=bool(spider_urls),
+                discovered=spider_urls,
+            )
+        )
         discovered = _collect_discovered(outputs)
 
     deduped: dict[str, str] = {}
@@ -124,14 +142,6 @@ def _sitemap_strategy(
     discovered = [(str(url.loc), DiscoverySource.sitemap) for url in parsed.urls]
     return StrategyOutput(
         strategy_id="sitemap", success=bool(discovered), discovered=discovered
-    )
-
-
-def _fallback_seed_strategy(context: StrategyInput) -> StrategyOutput:
-    return StrategyOutput(
-        strategy_id="fallback_seed",
-        success=True,
-        discovered=[(str(context.target.url), DiscoverySource.crawl)],
     )
 
 

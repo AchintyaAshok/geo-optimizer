@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import streamlit as st
 
 from crawllmer.app.web.runtime import pipeline, repo
 from crawllmer.core import InvalidInputError
+from crawllmer.core.config import get_settings
 from crawllmer.domain.models import (
     CrawlEvent,
     CrawlRun,
@@ -151,6 +151,16 @@ st.markdown(
         0%, 100% { opacity: 1; }
         50% { opacity: 0.3; }
     }
+    /* ---- refresh indicator ---- */
+    .refresh-bar {
+        display: flex; align-items: center; gap: 8px;
+        padding: 4px 0; font-size: .75rem; color: #9ca3af;
+    }
+    .refresh-dot {
+        display: inline-block; width: 6px; height: 6px;
+        border-radius: 50%; background: #22c55e;
+    }
+    .refresh-dot-idle { background: #6b7280; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -196,15 +206,14 @@ st.markdown(
 )
 
 # ---------------------------------------------------------------------------
-# Session state
+# Session state — only UI selection, no run tracking
 # ---------------------------------------------------------------------------
 
-if "active_runs" not in st.session_state:
-    st.session_state.active_runs: list[str] = []
-if "completed_runs" not in st.session_state:
-    st.session_state.completed_runs: list[str] = []
 if "selected_run" not in st.session_state:
     st.session_state.selected_run: str | None = None
+
+_settings = get_settings()
+RECENT_HOURS = 24
 
 
 # ---------------------------------------------------------------------------
@@ -527,28 +536,34 @@ def _render_detail_panel(run_id_str: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Classify active vs completed runs
+# Data helpers
 # ---------------------------------------------------------------------------
 
-has_active = False
-still_active: list[str] = []
-newly_completed: list[str] = []
 
-for rid in st.session_state.active_runs:
-    run = repo.get_run(UUID(rid))
-    if run and run.status in (RunStatus.completed, RunStatus.failed):
-        newly_completed.append(rid)
-    else:
-        still_active.append(rid)
-        has_active = True
+def _fetch_runs() -> tuple[list[CrawlRun], list[CrawlRun], list[CrawlRun], bool]:
+    """Query all runs and classify into active / recent / history."""
+    all_runs = repo.list_runs(limit=50)
+    now = datetime.now(UTC)
+    recent_cutoff = now - timedelta(hours=RECENT_HOURS)
 
-for rid in newly_completed:
-    if rid not in st.session_state.completed_runs:
-        st.session_state.completed_runs.insert(0, rid)
-        # Auto-select the newly completed run
-        st.session_state.selected_run = rid
+    active: list[CrawlRun] = []
+    recent: list[CrawlRun] = []
+    history: list[CrawlRun] = []
 
-st.session_state.active_runs = still_active
+    for run in all_runs:
+        if run.status in (RunStatus.queued, RunStatus.running):
+            active.append(run)
+        else:
+            created = run.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+            if created >= recent_cutoff:
+                recent.append(run)
+            else:
+                history.append(run)
+
+    return active, recent, history, len(active) > 0
+
 
 # ---------------------------------------------------------------------------
 # Two-column layout
@@ -575,10 +590,8 @@ with col_list:
         else:
             try:
                 new_run = pipeline.enqueue_run(url)
-                rid = str(new_run.id)
-                st.session_state.active_runs.append(rid)
-                st.session_state.selected_run = rid
-                has_active = True
+                st.session_state.selected_run = str(new_run.id)
+                st.rerun()
             except InvalidInputError as exc:
                 st.error(f"Invalid URL: {exc}")
 
@@ -617,49 +630,62 @@ with col_list:
             st.session_state.selected_run = str(run.id)
             st.rerun()
 
-    # Active runs
-    if still_active:
-        st.caption("ACTIVE")
-        for rid in still_active:
-            run = repo.get_run(UUID(rid))
-            if run:
-                items = repo.list_work_items(UUID(rid))
+    # ---- Auto-refreshing run list fragment ----
+    @st.fragment(run_every=_settings.ui_refresh_seconds)
+    def _run_list_fragment() -> None:
+        active_runs, recent_runs, history_runs, has_active = _fetch_runs()
+
+        # Refresh indicator + manual refresh button
+        updated_at = datetime.now(UTC).strftime("%H:%M:%S")
+        dot_cls = "refresh-dot" if has_active else "refresh-dot refresh-dot-idle"
+        label = "Auto-refreshing" if has_active else "Up to date"
+        ind_col, btn_col = st.columns([3, 1])
+        with ind_col:
+            st.markdown(
+                f'<div class="refresh-bar">'
+                f'<span class="{dot_cls}"></span> {label} · {updated_at}'
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with btn_col:
+            if st.button("Refresh", key="refresh-btn", use_container_width=True):
+                st.rerun(scope="fragment")
+
+        # Active runs
+        if active_runs:
+            st.caption("ACTIVE")
+            for run in active_runs:
+                items = repo.list_work_items(run.id)
                 _run_button(run, key_prefix="active", items=items)
 
-    # Completed this session
-    if st.session_state.completed_runs:
-        st.caption("COMPLETED")
-        for rid in st.session_state.completed_runs:
-            run = repo.get_run(UUID(rid))
-            if run:
-                _run_button(run, key_prefix="done")
+        # Recent completed/failed
+        if recent_runs:
+            st.caption("RECENT")
+            for run in recent_runs:
+                _run_button(run, key_prefix="recent")
 
-    # History
-    history = repo.list_runs(limit=20)
-    session_ids = set(st.session_state.active_runs + st.session_state.completed_runs)
-    history_runs = [r for r in history if str(r.id) not in session_ids]
-    if history_runs:
-        st.caption("HISTORY")
-        for run in history_runs:
-            _run_button(run, key_prefix="hist")
+        # Older history
+        if history_runs:
+            st.caption("HISTORY")
+            for run in history_runs:
+                _run_button(run, key_prefix="hist")
+
+    _run_list_fragment()
 
 # ---- RIGHT: detail panel ----
 with col_detail:
-    if st.session_state.selected_run:
-        _render_detail_panel(st.session_state.selected_run)
-    else:
-        st.markdown(
-            "<div style='text-align:center; padding: 80px 20px; "
-            "color: #9ca3af;'>"
-            "<p style='font-size: 1.2rem;'>Select a crawl to view details"
-            "</p></div>",
-            unsafe_allow_html=True,
-        )
 
-# ---------------------------------------------------------------------------
-# Auto-refresh while crawls are active
-# ---------------------------------------------------------------------------
+    @st.fragment(run_every=_settings.ui_refresh_seconds)
+    def _detail_fragment() -> None:
+        if st.session_state.selected_run:
+            _render_detail_panel(st.session_state.selected_run)
+        else:
+            st.markdown(
+                "<div style='text-align:center; padding: 80px 20px; "
+                "color: #9ca3af;'>"
+                "<p style='font-size: 1.2rem;'>Select a crawl to view details"
+                "</p></div>",
+                unsafe_allow_html=True,
+            )
 
-if has_active:
-    time.sleep(1)
-    st.rerun()
+    _detail_fragment()

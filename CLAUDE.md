@@ -84,6 +84,7 @@ See `.env.example` for the full list with inline documentation.
 | `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery results (use `redis://...` for Redis) |
 | `CRAWLLMER_LOG_LEVEL` | `DEBUG` | Logging severity (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
 | `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval |
+| `CRAWLLMER_UI_REFRESH_SECONDS` | `2` | Streamlit UI auto-refresh interval |
 
 ## Observability
 
