@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -152,6 +151,16 @@ st.markdown(
         0%, 100% { opacity: 1; }
         50% { opacity: 0.3; }
     }
+    /* ---- refresh indicator ---- */
+    .refresh-bar {
+        display: flex; align-items: center; gap: 8px;
+        padding: 4px 0; font-size: .75rem; color: #9ca3af;
+    }
+    .refresh-dot {
+        display: inline-block; width: 6px; height: 6px;
+        border-radius: 50%; background: #22c55e;
+    }
+    .refresh-dot-idle { background: #6b7280; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -527,30 +536,34 @@ def _render_detail_panel(run_id_str: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Classify runs from the database (no session-state tracking)
+# Data helpers
 # ---------------------------------------------------------------------------
 
-all_runs = repo.list_runs(limit=50)
-now = datetime.now(UTC)
-recent_cutoff = now - timedelta(hours=RECENT_HOURS)
 
-active_runs: list[CrawlRun] = []
-recent_runs: list[CrawlRun] = []
-history_runs: list[CrawlRun] = []
+def _fetch_runs() -> tuple[list[CrawlRun], list[CrawlRun], list[CrawlRun], bool]:
+    """Query all runs and classify into active / recent / history."""
+    all_runs = repo.list_runs(limit=50)
+    now = datetime.now(UTC)
+    recent_cutoff = now - timedelta(hours=RECENT_HOURS)
 
-for run in all_runs:
-    if run.status in (RunStatus.queued, RunStatus.running):
-        active_runs.append(run)
-    else:
-        created = run.created_at
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=UTC)
-        if created >= recent_cutoff:
-            recent_runs.append(run)
+    active: list[CrawlRun] = []
+    recent: list[CrawlRun] = []
+    history: list[CrawlRun] = []
+
+    for run in all_runs:
+        if run.status in (RunStatus.queued, RunStatus.running):
+            active.append(run)
         else:
-            history_runs.append(run)
+            created = run.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=UTC)
+            if created >= recent_cutoff:
+                recent.append(run)
+            else:
+                history.append(run)
 
-has_active = len(active_runs) > 0
+    return active, recent, history, len(active) > 0
+
 
 # ---------------------------------------------------------------------------
 # Two-column layout
@@ -617,42 +630,57 @@ with col_list:
             st.session_state.selected_run = str(run.id)
             st.rerun()
 
-    # Active runs
-    if active_runs:
-        st.caption("ACTIVE")
-        for run in active_runs:
-            items = repo.list_work_items(run.id)
-            _run_button(run, key_prefix="active", items=items)
+    # ---- Auto-refreshing run list fragment ----
+    @st.fragment(run_every=_settings.ui_refresh_seconds)
+    def _run_list_fragment() -> None:
+        active_runs, recent_runs, history_runs, has_active = _fetch_runs()
 
-    # Recent completed/failed
-    if recent_runs:
-        st.caption("RECENT")
-        for run in recent_runs:
-            _run_button(run, key_prefix="recent")
-
-    # Older history
-    if history_runs:
-        st.caption("HISTORY")
-        for run in history_runs:
-            _run_button(run, key_prefix="hist")
-
-# ---- RIGHT: detail panel ----
-with col_detail:
-    if st.session_state.selected_run:
-        _render_detail_panel(st.session_state.selected_run)
-    else:
+        # Refresh indicator
+        updated_at = datetime.now(UTC).strftime("%H:%M:%S")
+        dot_cls = "refresh-dot" if has_active else "refresh-dot refresh-dot-idle"
+        label = "Auto-refreshing" if has_active else "Up to date"
         st.markdown(
-            "<div style='text-align:center; padding: 80px 20px; "
-            "color: #9ca3af;'>"
-            "<p style='font-size: 1.2rem;'>Select a crawl to view details"
-            "</p></div>",
+            f'<div class="refresh-bar">'
+            f'<span class="{dot_cls}"></span> {label} · {updated_at}'
+            f"</div>",
             unsafe_allow_html=True,
         )
 
-# ---------------------------------------------------------------------------
-# Auto-refresh while crawls are active
-# ---------------------------------------------------------------------------
+        # Active runs
+        if active_runs:
+            st.caption("ACTIVE")
+            for run in active_runs:
+                items = repo.list_work_items(run.id)
+                _run_button(run, key_prefix="active", items=items)
 
-if has_active:
-    time.sleep(_settings.ui_refresh_seconds)
-    st.rerun()
+        # Recent completed/failed
+        if recent_runs:
+            st.caption("RECENT")
+            for run in recent_runs:
+                _run_button(run, key_prefix="recent")
+
+        # Older history
+        if history_runs:
+            st.caption("HISTORY")
+            for run in history_runs:
+                _run_button(run, key_prefix="hist")
+
+    _run_list_fragment()
+
+# ---- RIGHT: detail panel ----
+with col_detail:
+
+    @st.fragment(run_every=_settings.ui_refresh_seconds)
+    def _detail_fragment() -> None:
+        if st.session_state.selected_run:
+            _render_detail_panel(st.session_state.selected_run)
+        else:
+            st.markdown(
+                "<div style='text-align:center; padding: 80px 20px; "
+                "color: #9ca3af;'>"
+                "<p style='font-size: 1.2rem;'>Select a crawl to view details"
+                "</p></div>",
+                unsafe_allow_html=True,
+            )
+
+    _detail_fragment()
