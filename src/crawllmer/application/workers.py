@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
@@ -171,12 +174,15 @@ def extract_metadata(
     urls: list[tuple[str, str]],
     validators: dict[str, tuple[str | None, str | None]],
     client: httpx.Client | None = None,
+    on_page_event: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> tuple[list[ExtractedPage], dict[str, tuple[str | None, str | None]]]:
     requester = client or httpx.Client(timeout=8.0)
     pages: list[ExtractedPage] = []
     new_validators: dict[str, tuple[str | None, str | None]] = {}
+    emit = on_page_event or (lambda _name, _data: None)
 
     for url, provenance in urls:
+        fetch_start = datetime.now(UTC)
         headers = {}
         etag, last_modified = validators.get(url, (None, None))
         if etag:
@@ -185,9 +191,31 @@ def extract_metadata(
             headers["If-Modified-Since"] = last_modified
 
         response = requester.get(url, headers=headers)
+        fetch_end = datetime.now(UTC)
+
         if response.status_code == 304:
+            emit(
+                "extraction.page_skipped",
+                {
+                    "url": url,
+                    "reason": "not_modified",
+                    "status_code": 304,
+                    "started_at": fetch_start,
+                    "completed_at": fetch_end,
+                },
+            )
             continue
         if response.status_code != 200:
+            emit(
+                "extraction.page_skipped",
+                {
+                    "url": url,
+                    "reason": "http_error",
+                    "status_code": response.status_code,
+                    "started_at": fetch_start,
+                    "completed_at": fetch_end,
+                },
+            )
             continue
 
         title, title_source, title_conf = _extract_title(response.text)
@@ -209,6 +237,21 @@ def extract_metadata(
         new_validators[url] = (
             response.headers.get("etag"),
             response.headers.get("last-modified"),
+        )
+        emit(
+            "extraction.page_extracted",
+            {
+                "url": url,
+                "provenance": provenance,
+                "title": title,
+                "title_source": title_source,
+                "title_confidence": title_conf,
+                "description": desc[:120] if desc else None,
+                "description_source": desc_source,
+                "description_confidence": desc_conf,
+                "started_at": fetch_start,
+                "completed_at": datetime.now(UTC),
+            },
         )
     return pages, new_validators
 

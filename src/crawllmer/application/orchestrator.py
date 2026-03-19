@@ -137,6 +137,24 @@ class CrawlPipeline:
             )
 
         def run_extraction(current_run: CrawlRun) -> None:
+            def on_page_event(name: str, data: dict) -> None:
+                span = trace.get_current_span()
+                span.add_event(name, {"url": data.get("url", "")})
+                self.repository.create_event(
+                    CrawlEvent(
+                        run_id=current_run.id,
+                        name=name,
+                        system="extraction",
+                        started_at=data.get("started_at", datetime.now(UTC)),
+                        completed_at=data.get("completed_at"),
+                        metadata={
+                            k: v
+                            for k, v in data.items()
+                            if k not in ("started_at", "completed_at")
+                        },
+                    )
+                )
+
             validators = {
                 url: self.repository.get_validator(url)
                 for url, _ in self.repository.get_discovered_urls(current_run.id)
@@ -146,6 +164,7 @@ class CrawlPipeline:
                     current_run.id,
                     self.repository.get_discovered_urls(current_run.id),
                     validators,
+                    on_page_event=on_page_event,
                 )
             )
             self.repository.upsert_extracted_pages(pages)
