@@ -398,6 +398,8 @@ def generate_llms_txt(
             description=page.description,
         )
         section = _section_name_from_url(page.url, hostname)
+        if section is None:
+            continue
         sections.setdefault(section, []).append(entry)
 
     document = LlmsTxtDocument(
@@ -411,8 +413,15 @@ def generate_llms_txt(
     return document.to_text()
 
 
-def _section_name_from_url(url: str, hostname: str) -> str:
-    """Derive an H2 section name from the first path segment."""
+# Path prefixes that serve raw/duplicate content and should be excluded
+_SKIP_PREFIXES = {"raw", "assets", "static", "_next", "_nuxt", "__"}
+
+
+def _section_name_from_url(url: str, hostname: str) -> str | None:
+    """Derive an H2 section name from the first path segment.
+
+    Returns None for paths that should be excluded from the output.
+    """
     parsed = urlparse(url)
 
     # External links get their own section
@@ -424,6 +433,11 @@ def _section_name_from_url(url: str, hostname: str) -> str:
         return "Home"
 
     first_segment = path.split("/")[0]
+
+    # Skip non-content prefixes (raw markdown mirrors, assets, etc.)
+    if first_segment.lower() in _SKIP_PREFIXES:
+        return None
+
     # Strip file extensions (.html, .md, .txt, etc.)
     name = first_segment.rsplit(".", 1)[0] if "." in first_segment else first_segment
     return name.replace("-", " ").replace("_", " ").title()
