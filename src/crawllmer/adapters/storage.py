@@ -8,6 +8,7 @@ from sqlalchemy.exc import OperationalError
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from crawllmer.domain.models import (
+    CrawlEvent,
     CrawlRun,
     ExtractedPage,
     GenerationArtifact,
@@ -75,6 +76,16 @@ class UrlValidatorRecord(SQLModel, table=True):
     url: str = Field(primary_key=True)
     etag: str | None = None
     last_modified: str | None = None
+
+
+class CrawlEventRecord(SQLModel, table=True):
+    id: UUID = Field(primary_key=True)
+    run_id: UUID = Field(index=True)
+    name: str = Field(index=True)
+    system: str = Field(index=True)
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    completed_at: datetime | None = None
+    metadata_json: str = "{}"
 
 
 class ArtifactRecord(SQLModel, table=True):
@@ -325,6 +336,42 @@ class SqliteCrawlRepository(CrawlRepository):
         return GenerationArtifact(
             run_id=row.run_id, llms_txt=row.llms_txt, generated_at=row.generated_at
         )
+
+    def create_event(self, event: CrawlEvent) -> CrawlEvent:
+        record = CrawlEventRecord(
+            id=event.id,
+            run_id=event.run_id,
+            name=event.name,
+            system=event.system,
+            started_at=event.started_at,
+            completed_at=event.completed_at,
+            metadata_json=json.dumps(event.metadata, default=str),
+        )
+        with Session(self.engine) as session:
+            session.add(record)
+            session.commit()
+        return event
+
+    def list_events(self, run_id: UUID) -> list[CrawlEvent]:
+        statement = (
+            select(CrawlEventRecord)
+            .where(CrawlEventRecord.run_id == run_id)
+            .order_by(CrawlEventRecord.started_at.asc())
+        )
+        with Session(self.engine) as session:
+            rows = session.exec(statement).all()
+        return [
+            CrawlEvent(
+                id=row.id,
+                run_id=row.run_id,
+                name=row.name,
+                system=row.system,
+                started_at=row.started_at,
+                completed_at=row.completed_at,
+                metadata=json.loads(row.metadata_json),
+            )
+            for row in rows
+        ]
 
     @staticmethod
     def _to_run(record: CrawlRunRecord) -> CrawlRun:

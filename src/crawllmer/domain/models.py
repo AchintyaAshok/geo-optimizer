@@ -141,6 +141,23 @@ class ExtractedPage:
 
 
 @dataclass(slots=True)
+class CrawlEvent:
+    id: UUID = field(default_factory=uuid4)
+    run_id: UUID | None = None
+    name: str = ""
+    system: str = ""
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    completed_at: datetime | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def duration(self) -> float | None:
+        if self.completed_at is None:
+            return None
+        return (self.completed_at - self.started_at).total_seconds()
+
+
+@dataclass(slots=True)
 class GenerationArtifact:
     run_id: UUID
     llms_txt: str

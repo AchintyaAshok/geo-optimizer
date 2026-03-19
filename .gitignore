@@ -29,3 +29,6 @@ htmlcov/
 
 # Ruff
 .ruff_cache/
+
+# SQLite runtime databases
+*.db

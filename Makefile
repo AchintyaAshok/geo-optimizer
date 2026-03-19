@@ -1,4 +1,4 @@
-.PHONY: sync test lint format check run-api run-ui run-worker run-dev clean-db clean stop restart
+.PHONY: sync test lint format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart
 
 sync:
 	uv sync
@@ -25,6 +25,9 @@ run-worker:  ## Start Celery worker (SQLite broker by default)
 
 run-dev:  ## Start API + UI + worker together
 	bash -lc 'trap "kill 0" EXIT; uv run uvicorn crawllmer.main:app --host 0.0.0.0 --port 8000 --reload & uv run streamlit run src/crawllmer/web/streamlit_app.py --server.address 0.0.0.0 --server.port 8501 & uv run python -m crawllmer.worker & wait'
+
+run-observability:
+	docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build
 
 clean-db:  ## Remove local SQLite database files
 	rm -f crawllmer.db celery-broker.db celery-results.db

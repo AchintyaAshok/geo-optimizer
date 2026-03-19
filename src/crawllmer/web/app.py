@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException
@@ -7,10 +9,18 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, HttpUrl
 
 from crawllmer.application.observability import log_event
+from crawllmer.application.telemetry_setup import setup_telemetry
 from crawllmer.domain.models import RunStatus
 from crawllmer.web.runtime import pipeline, repo
 
-app = FastAPI(title="crawllmer")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    setup_telemetry("crawllmer-api")
+    yield
+
+
+app = FastAPI(title="crawllmer", lifespan=lifespan)
 
 
 class CrawlRequest(BaseModel):
@@ -80,6 +90,29 @@ def crawl_llms_txt(run_id: UUID):
     if artifact is None:
         raise HTTPException(status_code=404, detail="llms.txt not found")
     return artifact.llms_txt
+
+
+@app.get("/api/v1/crawls/{run_id}/events")
+def crawl_events(run_id: UUID):
+    run = repo.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    events = repo.list_events(run_id)
+    return [
+        {
+            "id": str(event.id),
+            "run_id": str(event.run_id),
+            "name": event.name,
+            "system": event.system,
+            "started_at": event.started_at.isoformat(),
+            "completed_at": (
+                event.completed_at.isoformat() if event.completed_at else None
+            ),
+            "duration": event.duration,
+            "metadata": event.metadata,
+        }
+        for event in events
+    ]
 
 
 @app.get("/api/v1/history")

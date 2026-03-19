@@ -11,16 +11,17 @@ Python 3.12 project using `uv` as the package manager. Stack: FastAPI + Streamli
 ## Commands
 
 ```bash
-make sync      # Install/sync dependencies (uv sync)
-make test      # Run tests (uv run pytest -v -s)
-make lint      # Lint (uv run ruff check .)
-make format    # Auto-format (uv run ruff format .)
-make check     # Format → lint → test (quality gate)
+make sync              # Install/sync dependencies (uv sync)
+make test              # Run tests (uv run pytest -v -s)
+make lint              # Lint (uv run ruff check .)
+make format            # Auto-format (uv run ruff format .)
+make check             # Format → lint → test (quality gate)
 
 # Runtime
-make run-api   # FastAPI on :8000 (PYTHONPATH=src)
-make run-ui    # Streamlit on :8501
-make run-dev   # Both simultaneously
+make run-api           # FastAPI on :8000 (PYTHONPATH=src)
+make run-ui            # Streamlit on :8501
+make run-dev           # Both simultaneously
+make run-observability # Full stack with OTEL Collector, Jaeger, Prometheus, Grafana
 
 # Docker
 docker compose up               # API + worker (SQLite Celery broker)
@@ -69,6 +70,17 @@ tests/
 | `CRAWLLMER_CELERY_BROKER_URL` | `sqla+sqlite:///./celery-broker.db` | Celery broker (use `redis://...` for Redis) |
 | `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery results (use `redis://...` for Redis) |
 | `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval |
+
+## Observability
+
+OpenTelemetry is the single telemetry protocol for traces, metrics, and structured logs.
+
+- **Bootstrap**: `setup_telemetry(service_name)` in `src/crawllmer/application/telemetry_setup.py` — called at FastAPI startup and Celery worker init
+- **Dual-mode exporters**: When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, OTLP gRPC exporters send to a collector. When unset, console exporters print telemetry to stdout (local dev default)
+- **Auto-instrumentation**: FastAPI, httpx, Celery, SQLite3 — zero-effort spans for all requests, outbound calls, tasks, and DB queries
+- **Custom telemetry**: `PipelineTelemetry` in `observability.py` provides pipeline-specific metrics and span events
+- **Stack**: `make run-observability` starts the full stack — OTEL Collector (:4317), Jaeger (:16686), Prometheus (:9090), Grafana (:3000)
+- **Config**: `infra/otel-collector-config.yaml`, `infra/prometheus/prometheus.yml`, `infra/grafana/provisioning/`
 
 ## Key Specs
 
