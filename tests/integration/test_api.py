@@ -84,12 +84,15 @@ def test_crawl_events_are_persisted_and_retrievable(monkeypatch) -> None:
     response = client.get(f"/api/v1/crawls/{run_id}/events")
     assert response.status_code == 200
     events = response.json()
-    # 1 run-level event + 5 stage events = 6 total
-    assert len(events) == 6
+    # 1 run-level + 5 stage events + per-page extraction sub-events
+    assert len(events) >= 7
     systems = [e["system"] for e in events]
     assert "discovery" in systems
     assert "extraction" in systems
     assert "pipeline" in systems
+    # Verify per-page extraction sub-events exist
+    names = [e["name"] for e in events]
+    assert "extraction.page_extracted" in names
     # All events should have duration (completed)
     for event in events:
         assert event["duration"] is not None
