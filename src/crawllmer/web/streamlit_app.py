@@ -320,8 +320,42 @@ def _render_timeline(items: list[WorkItem]) -> None:
         )
 
 
+RECENT_EVENT_COUNT = 8
+
+
+def _event_row_html(ev: CrawlEvent) -> str:
+    """Build one HTML row for a crawl event."""
+    ts = ev.started_at
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    time_str = ts.strftime("%H:%M:%S")
+
+    dur_str = ""
+    if ev.duration is not None:
+        ms = int(ev.duration * 1000)
+        dur_str = f"{ms}ms" if ms < 1000 else f"{ms / 1000:.1f}s"
+
+    meta_parts: list[str] = []
+    for k, v in ev.metadata.items():
+        val = str(v)
+        if len(val) > 60:
+            val = val[:57] + "..."
+        meta_parts.append(f"{k}={val}")
+    meta_str = " ".join(meta_parts)
+
+    return (
+        '<div class="ev-row">'
+        f'<span class="ev-time">{time_str}</span>'
+        f'<span class="ev-name">{ev.name}</span>'
+        f'<span class="ev-sys">{ev.system}</span>'
+        f'<span class="ev-dur">{dur_str}</span>'
+        f'<span class="ev-meta">{meta_str}</span>'
+        "</div>"
+    )
+
+
 def _render_events(events: list[CrawlEvent], *, is_active: bool) -> None:
-    """Render a list of crawl events as a compact log."""
+    """Render recent events as styled log + full list in a dataframe."""
     if not events:
         if is_active:
             st.caption("Waiting for events...")
@@ -335,39 +369,42 @@ def _render_events(events: list[CrawlEvent], *, is_active: bool) -> None:
         unsafe_allow_html=True,
     )
 
-    # Show most recent events first, cap display at 50
-    display = list(reversed(events[-50:]))
-    rows: list[str] = []
-    for ev in display:
-        ts = ev.started_at
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=UTC)
-        time_str = ts.strftime("%H:%M:%S")
+    # Recent events as styled monospace log (most recent first)
+    recent = list(reversed(events[-RECENT_EVENT_COUNT:]))
+    st.markdown(
+        "\n".join(_event_row_html(ev) for ev in recent),
+        unsafe_allow_html=True,
+    )
 
-        dur_str = ""
-        if ev.duration is not None:
-            ms = int(ev.duration * 1000)
-            dur_str = f"{ms}ms" if ms < 1000 else f"{ms / 1000:.1f}s"
+    # Full event table in a collapsed expander (if more than shown)
+    if len(events) > RECENT_EVENT_COUNT:
+        with st.expander(f"All {len(events)} events"):
+            table_rows = []
+            for ev in reversed(events):
+                ts = ev.started_at
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=UTC)
+                dur = None
+                if ev.duration is not None:
+                    dur = round(ev.duration * 1000)
 
-        meta_parts: list[str] = []
-        for k, v in ev.metadata.items():
-            val = str(v)
-            if len(val) > 60:
-                val = val[:57] + "..."
-            meta_parts.append(f"{k}={val}")
-        meta_str = " ".join(meta_parts)
-
-        rows.append(
-            '<div class="ev-row">'
-            f'<span class="ev-time">{time_str}</span>'
-            f'<span class="ev-name">{ev.name}</span>'
-            f'<span class="ev-sys">{ev.system}</span>'
-            f'<span class="ev-dur">{dur_str}</span>'
-            f'<span class="ev-meta">{meta_str}</span>'
-            "</div>"
-        )
-
-    st.markdown("\n".join(rows), unsafe_allow_html=True)
+                meta_str = ", ".join(
+                    f"{k}={str(v)[:80]}" for k, v in ev.metadata.items()
+                )
+                table_rows.append(
+                    {
+                        "Time": ts.strftime("%H:%M:%S"),
+                        "Event": ev.name,
+                        "System": ev.system,
+                        "Duration (ms)": dur,
+                        "Details": meta_str,
+                    }
+                )
+            st.dataframe(
+                table_rows,
+                use_container_width=True,
+                hide_index=True,
+            )
 
 
 def _render_llms_txt(artifact_text: str, run_id_str: str) -> None:
