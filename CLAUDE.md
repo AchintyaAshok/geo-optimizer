@@ -89,7 +89,7 @@ See `.env.example` for the full list with inline documentation.
 
 OpenTelemetry is the single telemetry protocol for traces, metrics, and structured logs.
 
-- **Bootstrap**: `setup_telemetry(service_name)` in `src/crawllmer/application/telemetry_setup.py` — called at FastAPI startup and Celery worker init
+- **Bootstrap**: `setup_telemetry(service_name)` in `src/crawllmer/core/observability/telemetry_setup.py` — called at FastAPI startup and Celery worker init
 - **Dual-mode exporters**: When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, OTLP gRPC exporters send to a collector. When unset, console exporters print telemetry to stdout (local dev default)
 - **Auto-instrumentation**: FastAPI, httpx, Celery, SQLite3 — zero-effort spans for all requests, outbound calls, tasks, and DB queries
 - **Custom telemetry**: `PipelineTelemetry` in `observability.py` provides pipeline-specific metrics and span events

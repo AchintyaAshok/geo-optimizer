@@ -154,15 +154,14 @@ Source code in `src/crawllmer/`:
 
 ```
 src/crawllmer/
-├── core/            # errors.py (typed exception hierarchy)
-│   └── observability/  # telemetry_setup.py, pipeline_telemetry.py, events.py
-├── domain/          # models.py, ports.py — pure domain logic and abstract interfaces
-├── application/     # orchestrator.py, workers.py, queueing.py, scheduler.py, retry.py
-├── adapters/        # storage.py — SQLModel/SQLite persistence
-├── web/             # app.py (FastAPI), streamlit_app.py (Streamlit UI), runtime.py
-├── main.py          # FastAPI entrypoint
-├── celery_app.py    # Celery config & task definitions
-└── worker.py        # Celery worker entrypoint
+├── core/               # config, errors, orchestrator, retry, scheduler
+│   └── observability/  # telemetry_setup, pipeline_telemetry, events
+├── domain/             # models.py, ports.py — pure domain logic and abstract interfaces
+├── adapters/           # storage.py — SQLModel/SQLite persistence
+└── app/                # Three application runtimes
+    ├── api/            # main.py (FastAPI entrypoint), routes.py (endpoints)
+    ├── web/            # streamlit_app.py (Streamlit UI), runtime.py
+    └── indexer/        # app.py (Celery), __main__.py (worker), workers.py, queueing.py
 ```
 
 Full architecture documentation: **[docs/architecture.md](docs/architecture.md)**

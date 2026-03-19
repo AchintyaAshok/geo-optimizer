@@ -25,7 +25,7 @@ The sitemap parser handles both sitemap index files (containing `<sitemap>` entr
 
 All discovered URLs are deduplicated by URL string, preserving the first discovery source for provenance tracking.
 
-**Implementation**: `src/crawllmer/application/workers.py` — `discover_urls()`, `_direct_llms_strategy()`, `_robots_hints_strategy()`, `_sitemap_strategy()`, `_fallback_seed_strategy()`
+**Implementation**: `src/crawllmer/app/indexer/workers.py` — `discover_urls()`, `_direct_llms_strategy()`, `_robots_hints_strategy()`, `_sitemap_strategy()`, `_fallback_seed_strategy()`
 
 ## Stage 2: Extraction
 
@@ -58,7 +58,7 @@ The first match in each cascade wins. Every extraction records its source and co
 
 **Conditional requests**: If a previous crawl stored ETag or Last-Modified validators for a URL, the extractor sends `If-None-Match` / `If-Modified-Since` headers. A `304 Not Modified` response skips re-extraction.
 
-**Implementation**: `src/crawllmer/application/workers.py` — `extract_metadata()`, `_extract_title()`, `_extract_description()`
+**Implementation**: `src/crawllmer/app/indexer/workers.py` — `extract_metadata()`, `_extract_title()`, `_extract_description()`
 
 ## Stage 3: Canonicalization
 
@@ -71,7 +71,7 @@ URL normalization:
 
 When multiple extracted pages map to the same canonical URL, the one with the highest combined confidence (title + description) wins.
 
-**Implementation**: `src/crawllmer/application/workers.py` — `canonicalize_and_dedup()`, `_normalize_url()`
+**Implementation**: `src/crawllmer/app/indexer/workers.py` — `canonicalize_and_dedup()`, `_normalize_url()`
 
 ## Stage 4: Scoring
 
@@ -91,7 +91,7 @@ All values are rounded to 4 decimal places. A perfect score of 1.0 means every p
 
 The score breakdown is stored on the `CrawlRun` and returned in API responses, so users can understand _why_ a particular crawl scored the way it did.
 
-**Implementation**: `src/crawllmer/application/workers.py` — `score_pages()`
+**Implementation**: `src/crawllmer/app/indexer/workers.py` — `score_pages()`
 
 ## Stage 5: Generation
 
@@ -112,11 +112,11 @@ If a page has no title, the URL itself is used as the link text. Descriptions ar
 
 The generated text is stored as a `GenerationArtifact` and served via `GET /api/v1/crawls/{run_id}/llms.txt`.
 
-**Implementation**: `src/crawllmer/application/workers.py` — `generate_llms_txt()`; `src/crawllmer/domain/models.py` — `LlmsTxtDocument.to_text()`
+**Implementation**: `src/crawllmer/app/indexer/workers.py` — `generate_llms_txt()`; `src/crawllmer/domain/models.py` — `LlmsTxtDocument.to_text()`
 
 ## Pipeline Orchestration
 
-The `CrawlPipeline` class (`src/crawllmer/application/orchestrator.py`) coordinates all five stages:
+The `CrawlPipeline` class (`src/crawllmer/core/orchestrator.py`) coordinates all five stages:
 
 1. `enqueue_run(url)` — Validates the URL, creates a `CrawlRun` and initial `WorkItem`, publishes a discovery task to the queue
 2. `process_run(run_id)` — Loads the run, builds the stage plan, and executes each stage sequentially

@@ -150,6 +150,6 @@ Links to other domains (e.g., MDN documentation referenced in vite.dev's llms.tx
 ## Implementation Reference
 
 - **Model**: `LlmsTxtDocument` in `src/crawllmer/domain/models.py`
-- **Generation**: `generate_llms_txt()` in `src/crawllmer/application/workers.py`
+- **Generation**: `generate_llms_txt()` in `src/crawllmer/app/indexer/workers.py`
 - **Section logic**: `_section_name_from_url()` in the same file
-- **Orchestrator call**: `run_generation()` in `src/crawllmer/application/orchestrator.py`
+- **Orchestrator call**: `run_generation()` in `src/crawllmer/core/orchestrator.py`

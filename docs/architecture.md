@@ -38,43 +38,48 @@ Pure domain logic with no external dependencies.
   - `CrawlRepository` — 14 methods for CRUD on runs, work items, discovered URLs, extracted pages, validators, and artifacts
   - `QueuePublisher` — `publish(queue_name, payload)` for task dispatch
 
-### Application (`src/crawllmer/application/`)
+### Core (`src/crawllmer/core/`)
 
-Business logic that depends only on domain models and ports.
+Shared business logic and cross-cutting concerns.
+
+- **`config.py`** — Pydantic Settings with `CRAWLLMER_` env var prefix. Singleton via `get_settings()`.
 
 - **`orchestrator.py`** — `CrawlPipeline` coordinates the five-stage pipeline. `enqueue_run()` creates the run and publishes to the queue. `process_run()` builds a stage plan and executes each stage with state tracking.
-
-- **`workers.py`** — Pure functions for each pipeline stage: `discover_urls()`, `extract_metadata()`, `canonicalize_and_dedup()`, `score_pages()`, `generate_llms_txt()`. No database or queue dependencies — they take data in and return data out.
-
-- **`queueing.py`** — `CeleryQueuePublisher` implements the `QueuePublisher` port. `build_celery_app()` creates a configured Celery instance.
 
 - **`retry.py`** — `RetryPolicy` wraps functions with exponential backoff (2 retries, 50ms base, 2× multiplier).
 
 - **`scheduler.py`** — `HostRateLimiter` enforces per-host request delays (10ms base, 50ms adaptive penalty).
 
-- **`observability.py`** — `PipelineTelemetry` wraps OpenTelemetry meters and spans. `log_event()` produces structured JSON logs.
+- **`errors.py`** — Typed exception hierarchy: `CrawllmerError` base, `InvalidInputError`, `RunNotFoundError`, `PipelineProcessingError`, `CrawlFetchError`, `ContentExtractionError`, `GenerationError`.
+
+- **`observability/`** — `telemetry_setup.py` (OTEL SDK bootstrap), `pipeline_telemetry.py` (metrics + spans), `events.py` (structured event classes + `BusinessMetrics`).
 
 ### Adapters (`src/crawllmer/adapters/`)
 
 Concrete implementations of domain ports.
 
-- **`storage.py`** — SQLModel table definitions (`CrawlRunRecord`, `WorkItemRecord`, `WorkItemEventRecord`, `DiscoveredUrlRecord`, `ExtractedPageRecord`, `UrlValidatorRecord`, `ArtifactRecord`) and `SqliteCrawlRepository` implementing all `CrawlRepository` methods. `default_repository()` is a factory that creates a repository with engine and table initialization.
+- **`storage.py`** — SQLModel table definitions and `SqliteCrawlRepository` implementing all `CrawlRepository` methods. `default_repository()` is a factory that creates a repository with engine and table initialization.
 
-### Web (`src/crawllmer/web/`)
+### App (`src/crawllmer/app/`)
 
-Interface layer — thin wrappers over the application core.
+Three application runtimes sharing core, domain, and adapters.
 
-- **`app.py`** — FastAPI routes: health, enqueue, process, status, download, history. Routes delegate to `CrawlPipeline` and `CrawlRepository`.
+#### API (`app/api/`)
 
-- **`streamlit_app.py`** — Streamlit UI with URL input, active crawl progress cards, event timeline, score display, and download buttons.
+- **`main.py`** — FastAPI app instance with OTEL lifespan hook. Uvicorn entrypoint.
+- **`routes.py`** — API endpoints: health, enqueue, process, status, download, events, history.
 
-- **`runtime.py`** — Shared module that initializes `repo`, `queue`, and `pipeline` singletons from environment variables. Both FastAPI and Streamlit import from here.
+#### Web (`app/web/`)
 
-### Entrypoints
+- **`streamlit_app.py`** — Master-detail UI with navbar, active crawl tracking, live events, score metrics, and llms.txt preview.
+- **`runtime.py`** — Shared module that initializes `repo`, `queue`, and `pipeline` singletons.
 
-- **`main.py`** — Exports the FastAPI `app` for uvicorn.
-- **`celery_app.py`** — Configures the Celery app and defines the `crawllmer.discovery` task.
-- **`worker.py`** — Celery worker `__main__` entrypoint with solo pool.
+#### Indexer (`app/indexer/`)
+
+- **`app.py`** — Celery app instance and configuration. Importable without starting a worker.
+- **`__main__.py`** — Worker entrypoint (`python -m crawllmer.app.indexer`).
+- **`workers.py`** — Pipeline stage functions: `discover_urls()`, `extract_metadata()`, `canonicalize_and_dedup()`, `score_pages()`, `generate_llms_txt()`.
+- **`queueing.py`** — `CeleryQueuePublisher` implements the `QueuePublisher` port.
 
 ## Processing Pipeline
 
