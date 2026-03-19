@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy.exc import OperationalError
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from crawllmer.domain.models import (
@@ -85,7 +86,10 @@ class ArtifactRecord(SQLModel, table=True):
 class SqliteCrawlRepository(CrawlRepository):
     def __init__(self, db_url: str = "sqlite:///./crawllmer.db") -> None:
         self.engine = create_engine(db_url)
-        SQLModel.metadata.create_all(self.engine)
+        try:
+            SQLModel.metadata.create_all(self.engine)
+        except OperationalError:
+            pass  # table already created by another process (race on startup)
 
     def create_run(self, run: CrawlRun) -> CrawlRun:
         record = CrawlRunRecord(

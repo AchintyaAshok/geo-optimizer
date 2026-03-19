@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **crawllmer** — A web application that generates [llms.txt](https://llmstxt.org/) files for websites. Users input a URL, the app crawls the site, extracts metadata (titles, descriptions, URLs), and produces a spec-compliant llms.txt file for download.
 
-This is a greenfield Python 3.12 project using `uv` as the package manager. The full assignment spec lives in `docs/project_requirements.md`.
+Python 3.12 project using `uv` as the package manager. Stack: FastAPI + Streamlit (dual UI), Celery task queue, SQLModel/SQLite persistence. The full assignment spec lives in `docs/project_requirements.md`; architecture diagrams in `docs/architecture.md`.
 
 ## Commands
 
@@ -16,7 +16,16 @@ make test              # Run tests (uv run pytest -v -s)
 make lint              # Lint (uv run ruff check .)
 make format            # Auto-format (uv run ruff format .)
 make check             # Format → lint → test (quality gate)
+
+# Runtime
+make run-api           # FastAPI on :8000 (PYTHONPATH=src)
+make run-ui            # Streamlit on :8501
+make run-dev           # Both simultaneously
 make run-observability # Full stack with OTEL Collector, Jaeger, Prometheus, Grafana
+
+# Docker
+docker compose up               # API + worker (SQLite Celery broker)
+docker compose -f docker-compose.yml -f docker-compose.redis.yml up  # + Redis broker
 ```
 
 Run a single test: `uv run pytest tests/test_example.py::test_name -v -s`
@@ -29,13 +38,38 @@ Run a single test: `uv run pytest tests/test_example.py::test_name -v -s`
 
 ## Architecture
 
-Source code lives in `src/crawllmer/`. No web framework or crawler libraries have been chosen yet — these are architectural decisions to be made during implementation.
+Source code lives in `src/crawllmer/`, organised as hexagonal (ports & adapters):
 
-Expected modules (not yet built):
-- **Web layer** — user-facing app where users input URLs and download results
-- **Crawler** — traverses target websites, discovers pages
-- **Extractor** — parses HTML, pulls titles/descriptions/metadata
-- **Generator** — structures extracted data into llms.txt format per spec
+```
+src/crawllmer/
+├── domain/          # models.py (Pydantic/SQLModel), ports.py (abstract interfaces)
+├── application/     # orchestrator.py, workers.py, queueing.py, scheduler.py, retry.py, observability.py
+├── adapters/        # storage.py (SQLModel/SQLite persistence)
+├── web/             # app.py (FastAPI routes), streamlit_app.py (Streamlit UI), runtime.py (shared bootstrap)
+├── main.py          # FastAPI entrypoint
+├── celery_app.py    # Celery config & task definitions
+└── worker.py        # Celery worker entrypoint (__main__)
+```
+
+**Processing pipeline** (Celery tasks): discovery → extraction → canonicalization → scoring → generation
+
+## Testing
+
+```
+tests/
+├── conftest.py                  # Shared fixtures
+├── unit/                        # test_models.py, test_orchestrator.py, test_workers.py
+└── integration/                 # test_api.py, test_pipeline_flow.py
+```
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CRAWLLMER_DB_URL` | `sqlite:///./crawllmer.db` | App database |
+| `CRAWLLMER_CELERY_BROKER_URL` | `sqla+sqlite:///./celery-broker.db` | Celery broker (use `redis://...` for Redis) |
+| `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery results (use `redis://...` for Redis) |
+| `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval |
 
 ## Observability
 
@@ -52,8 +86,6 @@ OpenTelemetry is the single telemetry protocol for traces, metrics, and structur
 
 - llms.txt specification: https://llmstxt.org/
 - Output must conform to the spec (not just the examples at llmstxt.site)
-- Must be a web application (not CLI-only)
-- Must be deployable to a hosting platform
 
 ## Skills & Agent Workflows
 
