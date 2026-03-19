@@ -56,25 +56,16 @@ def print_run(run: dict, *, verbose: bool = False) -> None:
     print(f"  {icon}  {host:<35} {status:<12} {score_str}")
 
     if verbose and status == "failed":
-        detail = api_get(f"/api/v1/crawls/{rid}")
-        if detail:
-            notes = detail.get("score_breakdown", {})
-            print(f"     Error: check events for details")
+        print("     Error: check events for details")
 
     if verbose:
         events = api_get(f"/api/v1/crawls/{rid}/events")
         if events:
             print(f"     Events: {len(events)}")
             # Show last 3 stage events
-            stage_events = [
-                e for e in events if e["name"].startswith("stage.")
-            ]
+            stage_events = [e for e in events if e["name"].startswith("stage.")]
             for ev in stage_events[-5:]:
-                dur = (
-                    f"{int(ev['duration'] * 1000)}ms"
-                    if ev.get("duration")
-                    else "--"
-                )
+                dur = f"{int(ev['duration'] * 1000)}ms" if ev.get("duration") else "--"
                 outcome = ev.get("metadata", {}).get("outcome", "?")
                 print(f"       {ev['name']:<30} {dur:<10} {outcome}")
 
@@ -121,10 +112,10 @@ def main() -> None:
         total = len(history)
         completed = sum(1 for r in history if r["status"] == "completed")
         failed = sum(1 for r in history if r["status"] == "failed")
-        running = sum(
-            1 for r in history if r["status"] in ("running", "queued")
+        running = sum(1 for r in history if r["status"] in ("running", "queued"))
+        print(
+            f"\n{completed}/{total} completed, {failed} failed, {running} in progress"
         )
-        print(f"\n{completed}/{total} completed, {failed} failed, {running} in progress")
 
         if failed:
             sys.exit(1)
