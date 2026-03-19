@@ -381,16 +381,49 @@ def score_pages(pages: list[ExtractedPage]) -> dict[str, float]:
     }
 
 
-def generate_llms_txt(hostname: str, pages: list[ExtractedPage]) -> str:
+def generate_llms_txt(
+    hostname: str,
+    pages: list[ExtractedPage],
+    *,
+    site_title: str | None = None,
+    site_description: str | None = None,
+    links_discovered: int = 0,
+) -> str:
+    """Build a spec-compliant llms.txt grouped by top-level URL path."""
+    sections: dict[str, list[LlmsTxtEntry]] = {}
+    for page in pages:
+        entry = LlmsTxtEntry(
+            title=(page.title or page.url),
+            url=page.url,
+            description=page.description,
+        )
+        section = _section_name_from_url(page.url, hostname)
+        sections.setdefault(section, []).append(entry)
+
     document = LlmsTxtDocument(
         source_url=f"https://{hostname}",
-        entries=[
-            LlmsTxtEntry(
-                title=(page.title or page.url),
-                url=page.url,
-                description=page.description,
-            )
-            for page in pages
-        ],
+        title=site_title or hostname,
+        site_description=site_description,
+        pages_crawled=len(pages),
+        links_discovered=links_discovered or len(pages),
+        sections=sections,
     )
     return document.to_text()
+
+
+def _section_name_from_url(url: str, hostname: str) -> str:
+    """Derive an H2 section name from the first path segment."""
+    parsed = urlparse(url)
+
+    # External links get their own section
+    if parsed.netloc and parsed.netloc != hostname:
+        return "External"
+
+    path = parsed.path.strip("/")
+    if not path:
+        return "Home"
+
+    first_segment = path.split("/")[0]
+    # Strip file extensions (.html, .md, .txt, etc.)
+    name = first_segment.rsplit(".", 1)[0] if "." in first_segment else first_segment
+    return name.replace("-", " ").replace("_", " ").title()

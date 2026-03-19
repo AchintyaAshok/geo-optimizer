@@ -191,7 +191,22 @@ class CrawlPipeline:
 
         def run_generation(current_run: CrawlRun) -> None:
             pages = self.repository.get_extracted_pages(current_run.id)
-            llms_txt = generate_llms_txt(current_run.hostname, pages)
+            discovered = self.repository.get_discovered_urls(current_run.id)
+
+            # Use homepage metadata for site title and description
+            root = f"https://{current_run.hostname}"
+            home = next(
+                (p for p in pages if p.url.rstrip("/") == root.rstrip("/")),
+                None,
+            )
+
+            llms_txt = generate_llms_txt(
+                current_run.hostname,
+                pages,
+                site_title=home.title if home else None,
+                site_description=home.description if home else None,
+                links_discovered=len(discovered),
+            )
             self.repository.save_artifact(
                 GenerationArtifact(run_id=current_run.id, llms_txt=llms_txt)
             )

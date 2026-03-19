@@ -45,12 +45,31 @@ def test_crawl_event_duration_is_none_when_not_completed() -> None:
 def test_llms_txt_document_serialization_is_deterministic() -> None:
     document = LlmsTxtDocument(
         source_url="https://example.com",
-        entries=[
-            LlmsTxtEntry(title="B", url="https://example.com/b"),
-            LlmsTxtEntry(title="A", url="https://example.com/a"),
-        ],
+        title="Example Site",
+        site_description="An example website.",
+        pages_crawled=2,
+        links_discovered=5,
+        sections={
+            "Pages": [
+                LlmsTxtEntry(title="B", url="https://example.com/b"),
+                LlmsTxtEntry(title="A", url="https://example.com/a"),
+            ],
+        },
     )
 
-    lines = document.to_text().splitlines()
-    assert lines[2].startswith("- [A](https://example.com/a)")
-    assert lines[3].startswith("- [B](https://example.com/b)")
+    text = document.to_text()
+    lines = text.splitlines()
+
+    # H1 title
+    assert lines[0] == "# Example Site"
+    # Blockquote contains metadata
+    assert "example.com" in text
+    assert "**Pages crawled**: 2" in text
+    assert "**Links discovered**: 5" in text
+    assert "**Website Description**: An example website." in text
+    # H2 section
+    assert "## Pages" in text
+    # Entries sorted within section
+    pages_idx = lines.index("## Pages")
+    assert lines[pages_idx + 2].startswith("- [A](https://example.com/a)")
+    assert lines[pages_idx + 3].startswith("- [B](https://example.com/b)")

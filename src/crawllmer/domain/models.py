@@ -51,18 +51,51 @@ class LlmsTxtEntry(BaseModel):
 
 class LlmsTxtDocument(BaseModel):
     source_url: HttpUrl
+    title: str = ""
+    site_description: str | None = None
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    entries: list[LlmsTxtEntry] = Field(default_factory=list)
+    pages_crawled: int = 0
+    links_discovered: int = 0
+    sections: dict[str, list[LlmsTxtEntry]] = Field(default_factory=dict)
     provenance: dict[str, Any] = Field(default_factory=dict)
 
     def to_text(self) -> str:
-        sorted_entries = sorted(self.entries, key=lambda item: str(item.url))
-        lines = [f"# llms.txt for {self.source_url.host}", ""]
-        for entry in sorted_entries:
-            line = f"- [{entry.title}]({entry.url})"
-            if entry.description:
-                line += f": {entry.description}"
-            lines.append(line)
+        lines: list[str] = []
+
+        # H1 — site title
+        heading = self.title or str(self.source_url.host)
+        lines.append(f"# {heading}")
+        lines.append("")
+
+        # Blockquote — structured summary for LLM consumption
+        lines.append(
+            f"> This is a machine-generated llms.txt file for {self.source_url.host}."
+        )
+        lines.append(
+            "> Use the sections below to find relevant pages and documentation."
+        )
+        lines.append(">")
+        ts = self.generated_at.strftime("%Y-%m-%d %H:%M UTC")
+        lines.append(f"> - **Generated**: {ts}")
+        lines.append(f"> - **Pages crawled**: {self.pages_crawled}")
+        lines.append(f"> - **Links discovered**: {self.links_discovered}")
+        if self.site_description:
+            lines.append(">")
+            lines.append(f"> **Website Description**: {self.site_description}")
+        lines.append("")
+
+        # H2 sections — grouped by top-level path
+        for section_name, entries in self.sections.items():
+            sorted_entries = sorted(entries, key=lambda item: str(item.url))
+            lines.append(f"## {section_name}")
+            lines.append("")
+            for entry in sorted_entries:
+                line = f"- [{entry.title}]({entry.url})"
+                if entry.description:
+                    line += f": {entry.description}"
+                lines.append(line)
+            lines.append("")
+
         return "\n".join(lines).strip() + "\n"
 
 

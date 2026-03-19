@@ -53,7 +53,8 @@ def test_enqueue_and_process_run(monkeypatch) -> None:
 
     llms = client.get(f"/api/v1/crawls/{run_id}/llms.txt")
     assert llms.status_code == 200
-    assert "# llms.txt for api-example.com" in llms.text
+    assert "api-example.com" in llms.text
+    assert "## Home" in llms.text
 
 
 def test_crawl_events_are_persisted_and_retrievable(monkeypatch) -> None:

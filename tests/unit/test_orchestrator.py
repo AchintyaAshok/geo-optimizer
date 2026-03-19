@@ -90,7 +90,8 @@ def test_pipeline_completes_and_generates_deterministic_artifact(
     assert processed.score is not None
     artifact = repo.get_artifact(processed.id)
     assert artifact is not None
-    assert "# llms.txt for example.com" in artifact.llms_txt
+    assert "example.com" in artifact.llms_txt
+    assert "## Home" in artifact.llms_txt
 
     second = pipeline.enqueue_run("https://example.com")
     processed_second = pipeline.process_run(second.id)
