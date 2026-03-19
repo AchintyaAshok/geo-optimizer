@@ -56,6 +56,46 @@ def test_enqueue_and_process_run(monkeypatch) -> None:
     assert "# llms.txt for api-example.com" in llms.text
 
 
+def test_crawl_events_are_persisted_and_retrievable(monkeypatch) -> None:
+    class FakeHttpClient:
+        def __init__(self, timeout: float = 8.0) -> None:  # noqa: ARG002
+            pass
+
+        def get(self, url: str, headers: dict | None = None):  # noqa: ARG002
+            if url.endswith("/llms.txt"):
+                return FakeResponse(200, "- [Home](https://events-example.com/)")
+            if url.endswith("/robots.txt"):
+                return FakeResponse(200, "User-agent: *")
+            return FakeResponse(
+                200,
+                (
+                    "<html><head><title>Home</title>"
+                    '<meta name="description" content="Desc" /></head></html>'
+                ),
+            )
+
+    monkeypatch.setattr("crawllmer.application.workers.httpx.Client", FakeHttpClient)
+    client = TestClient(app)
+
+    enqueue = client.post("/api/v1/crawls", json={"url": "https://events-example.com"})
+    run_id = enqueue.json()["run_id"]
+    client.post(f"/api/v1/crawls/{run_id}/process")
+
+    response = client.get(f"/api/v1/crawls/{run_id}/events")
+    assert response.status_code == 200
+    events = response.json()
+    # 1 run-level event + 5 stage events = 6 total
+    assert len(events) == 6
+    systems = [e["system"] for e in events]
+    assert "discovery" in systems
+    assert "extraction" in systems
+    assert "pipeline" in systems
+    # All events should have duration (completed)
+    for event in events:
+        assert event["duration"] is not None
+        assert event["duration"] >= 0
+
+
 def test_invalid_url_validation() -> None:
     client = TestClient(app)
     response = client.post("/api/v1/crawls", json={"url": "notaurl"})
