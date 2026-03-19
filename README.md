@@ -18,20 +18,6 @@ cp .env.example .env   # adjust values as needed
 make run-dev           # start API + Streamlit UI + Celery worker
 ```
 
-## Configuration
-
-All settings are managed through a single Pydantic Settings class in
-`src/crawllmer/config.py`. Variables are read from the environment (or a
-`.env` file) and prefixed with `CRAWLLMER_`. See `.env.example` for the
-full list with inline documentation.
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `CRAWLLMER_DB_URL` | `sqlite:///./crawllmer.db` | Main application database |
-| `CRAWLLMER_CELERY_BROKER_URL` | `sqla+sqlite:///./celery-broker.db` | Celery message broker |
-| `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery result storage |
-| `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval (seconds) |
-
 Verify it's running:
 
 ```bash
@@ -115,6 +101,7 @@ Full deployment guide: **[guides/deployment.md](guides/deployment.md)**
 | `POST` | `/api/v1/crawls/{run_id}/process` | Execute the pipeline synchronously |
 | `GET` | `/api/v1/crawls/{run_id}` | Get run status and score |
 | `GET` | `/api/v1/crawls/{run_id}/llms.txt` | Download generated llms.txt |
+| `GET` | `/api/v1/crawls/{run_id}/events` | Get pipeline event log |
 | `GET` | `/api/v1/history` | List recent runs (optional `?host=` filter) |
 
 Full API details with request/response shapes: **[guides/api.md](guides/api.md)**
@@ -132,6 +119,7 @@ cp .env.example .env
 | `CRAWLLMER_DB_URL` | `sqlite:///./crawllmer.db` | Application database |
 | `CRAWLLMER_CELERY_BROKER_URL` | `sqla+sqlite:///./celery-broker.db` | Celery broker URL |
 | `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery result backend |
+| `CRAWLLMER_LOG_LEVEL` | `DEBUG` | Logging severity (DEBUG/INFO/WARNING/ERROR/CRITICAL) |
 | `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval |
 
 For Redis: set broker to `redis://localhost:6379/0` and result backend to `redis://localhost:6379/1`.
@@ -166,8 +154,10 @@ Source code in `src/crawllmer/`:
 
 ```
 src/crawllmer/
+├── core/            # errors.py (typed exception hierarchy)
+│   └── observability/  # telemetry_setup.py, pipeline_telemetry.py, events.py
 ├── domain/          # models.py, ports.py — pure domain logic and abstract interfaces
-├── application/     # orchestrator.py, workers.py, queueing.py, scheduler.py, retry.py, observability.py
+├── application/     # orchestrator.py, workers.py, queueing.py, scheduler.py, retry.py
 ├── adapters/        # storage.py — SQLModel/SQLite persistence
 ├── web/             # app.py (FastAPI), streamlit_app.py (Streamlit UI), runtime.py
 ├── main.py          # FastAPI entrypoint
@@ -214,7 +204,10 @@ tests/
 ├── unit/
 │   ├── test_models.py           # Domain model state machine, serialization
 │   ├── test_orchestrator.py     # Pipeline orchestration logic
-│   └── test_workers.py          # Discovery, extraction, scoring functions
+│   ├── test_workers.py          # Discovery, extraction, scoring functions
+│   ├── test_errors.py           # Typed error hierarchy
+│   ├── test_events.py           # Structured observability events
+│   └── test_config_log_level.py # Configuration and logging
 └── integration/
     ├── test_api.py              # FastAPI endpoint tests
     └── test_pipeline_flow.py    # End-to-end pipeline with mocked HTTP
@@ -247,6 +240,7 @@ Full Makefile reference: run `make help` or see the [Makefile](Makefile) (all ta
 | [Pipeline](guides/pipeline.md) | Deep dive into the five-stage processing pipeline |
 | [API Reference](guides/api.md) | Complete API documentation with request/response examples |
 | [Deployment](guides/deployment.md) | Local, Docker, and Redis deployment options |
+| [llms.txt Generation](guides/llms-txt-generation.md) | Output format, section grouping, caveats, and known limitations |
 
 ## Documentation
 
@@ -254,6 +248,7 @@ Full Makefile reference: run `make help` or see the [Makefile](Makefile) (all ta
 |----------|-------------|
 | [Architecture](docs/architecture.md) | System architecture, hexagonal design, and runtime topology |
 | [Design Decisions](docs/design_decisions.md) | Trade-offs and rationale behind key technical choices |
+| [Integration Test Plan](docs/integration-test-plan.md) | Test matrix with 13 sites across 3 categories |
 | [Project Requirements](docs/project_requirements.md) | Original assignment specification |
 | [PRDs](prd/) | Product requirement documents for each feature area |
 

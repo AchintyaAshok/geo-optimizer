@@ -18,10 +18,18 @@ make format            # Auto-format (uv run ruff format .)
 make check             # Format → lint → test (quality gate)
 
 # Runtime
-make run-api           # FastAPI on :8000 (PYTHONPATH=src)
+make run-api           # FastAPI on :8000
 make run-ui            # Streamlit on :8501
-make run-dev           # Both simultaneously
+make run-worker        # Celery worker
+make run-dev           # All three together
 make run-observability # Full stack with OTEL Collector, Jaeger, Prometheus, Grafana
+
+# Operations
+make crawl-status      # Show status of all crawl runs
+make stop              # Kill running processes
+make restart           # Stop, clean DB, start fresh
+make clean-db          # Remove SQLite database files
+make clean             # Remove venv, caches, and DB files
 
 # Docker
 docker compose up               # API + worker (SQLite Celery broker)
