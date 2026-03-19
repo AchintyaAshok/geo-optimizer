@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import streamlit as st
 
 from crawllmer.app.web.runtime import pipeline, repo
 from crawllmer.core import InvalidInputError
+from crawllmer.core.config import get_settings
 from crawllmer.domain.models import (
     CrawlEvent,
     CrawlRun,
@@ -196,15 +197,14 @@ st.markdown(
 )
 
 # ---------------------------------------------------------------------------
-# Session state
+# Session state — only UI selection, no run tracking
 # ---------------------------------------------------------------------------
 
-if "active_runs" not in st.session_state:
-    st.session_state.active_runs: list[str] = []
-if "completed_runs" not in st.session_state:
-    st.session_state.completed_runs: list[str] = []
 if "selected_run" not in st.session_state:
     st.session_state.selected_run: str | None = None
+
+_settings = get_settings()
+RECENT_HOURS = 24
 
 
 # ---------------------------------------------------------------------------
@@ -527,28 +527,30 @@ def _render_detail_panel(run_id_str: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Classify active vs completed runs
+# Classify runs from the database (no session-state tracking)
 # ---------------------------------------------------------------------------
 
-has_active = False
-still_active: list[str] = []
-newly_completed: list[str] = []
+all_runs = repo.list_runs(limit=50)
+now = datetime.now(UTC)
+recent_cutoff = now - timedelta(hours=RECENT_HOURS)
 
-for rid in st.session_state.active_runs:
-    run = repo.get_run(UUID(rid))
-    if run and run.status in (RunStatus.completed, RunStatus.failed):
-        newly_completed.append(rid)
+active_runs: list[CrawlRun] = []
+recent_runs: list[CrawlRun] = []
+history_runs: list[CrawlRun] = []
+
+for run in all_runs:
+    if run.status in (RunStatus.queued, RunStatus.running):
+        active_runs.append(run)
     else:
-        still_active.append(rid)
-        has_active = True
+        created = run.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+        if created >= recent_cutoff:
+            recent_runs.append(run)
+        else:
+            history_runs.append(run)
 
-for rid in newly_completed:
-    if rid not in st.session_state.completed_runs:
-        st.session_state.completed_runs.insert(0, rid)
-        # Auto-select the newly completed run
-        st.session_state.selected_run = rid
-
-st.session_state.active_runs = still_active
+has_active = len(active_runs) > 0
 
 # ---------------------------------------------------------------------------
 # Two-column layout
@@ -575,10 +577,8 @@ with col_list:
         else:
             try:
                 new_run = pipeline.enqueue_run(url)
-                rid = str(new_run.id)
-                st.session_state.active_runs.append(rid)
-                st.session_state.selected_run = rid
-                has_active = True
+                st.session_state.selected_run = str(new_run.id)
+                st.rerun()
             except InvalidInputError as exc:
                 st.error(f"Invalid URL: {exc}")
 
@@ -618,26 +618,19 @@ with col_list:
             st.rerun()
 
     # Active runs
-    if still_active:
+    if active_runs:
         st.caption("ACTIVE")
-        for rid in still_active:
-            run = repo.get_run(UUID(rid))
-            if run:
-                items = repo.list_work_items(UUID(rid))
-                _run_button(run, key_prefix="active", items=items)
+        for run in active_runs:
+            items = repo.list_work_items(run.id)
+            _run_button(run, key_prefix="active", items=items)
 
-    # Completed this session
-    if st.session_state.completed_runs:
-        st.caption("COMPLETED")
-        for rid in st.session_state.completed_runs:
-            run = repo.get_run(UUID(rid))
-            if run:
-                _run_button(run, key_prefix="done")
+    # Recent completed/failed
+    if recent_runs:
+        st.caption("RECENT")
+        for run in recent_runs:
+            _run_button(run, key_prefix="recent")
 
-    # History
-    history = repo.list_runs(limit=20)
-    session_ids = set(st.session_state.active_runs + st.session_state.completed_runs)
-    history_runs = [r for r in history if str(r.id) not in session_ids]
+    # Older history
     if history_runs:
         st.caption("HISTORY")
         for run in history_runs:
@@ -661,5 +654,5 @@ with col_detail:
 # ---------------------------------------------------------------------------
 
 if has_active:
-    time.sleep(1)
+    time.sleep(_settings.ui_refresh_seconds)
     st.rerun()
