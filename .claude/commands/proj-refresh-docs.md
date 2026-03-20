@@ -20,9 +20,11 @@ Read these files to understand what changed:
 - `src/crawllmer/adapters/storage.py` — Persistence layer
 - `src/crawllmer/web/runtime.py` — Configuration and env vars
 - `Makefile` — Build targets
-- `docker-compose.yml` and `docker-compose.redis.yml` — Docker setup
+- `docker-compose.yml` — Docker setup (profiles: redis, distributed)
+- `docker-compose.otel.yml` — Observability overlay
 - `pyproject.toml` — Dependencies
-- `.env.example` — Environment variables
+- `.env.example`, `.env.redis`, `.env.local-distributed` — Environment configs
+- `src/crawllmer/core/config.py` — Pydantic Settings (source of truth for all env vars)
 
 ### Step 2: Diff Against Docs
 
@@ -96,7 +98,8 @@ Feature-focused. Written for someone running or integrating with crawllmer.
 |------|--------|
 | `pipeline.md` | The five pipeline stages in detail — what each does, confidence scores, scoring formula |
 | `api.md` | Every API endpoint with request/response examples and a workflow script |
-| `deployment.md` | Local, Docker, Redis setup with env var reference |
+| `deployment.md` | Local, Docker, distributed setup with profile reference |
+| `environment.md` | All env vars, storage backends, Docker Compose profiles, OTEL |
 
 **Add a new guide when**: A README section keeps growing beyond a table + 2–3 sentences. Extract it into a guide and replace the README content with a summary + link.
 
@@ -126,6 +129,20 @@ PRDs are managed separately. Never move them to docs/ or reference them from gui
 - Group targets with `# ─── Section ───` ASCII dividers
 - Keep the `.PHONY` list at the top, covering all targets
 - If you add a new target, add it to `.PHONY` too
+
+## Slash Commands
+
+### Verify `/proj-setup` is still valid
+
+After updating docs, read `.claude/commands/proj-setup.md` and check it against the current state:
+
+- Do the questionnaire options still match available storage backends in `core/config.py`?
+- Do the referenced Makefile targets (`docker-up`, `redis-up`, `distributed-up`, `full-stack-distributed-up`) still exist?
+- Do the env file names (`.env.example`, `.env.redis`, `.env.local-distributed`) still exist?
+- Are the verification commands (`curl /health`, Streamlit URL) still correct?
+- If new configuration options were added (e.g., new `Settings` fields), should `/proj-setup` ask about them?
+
+If anything is stale, update `proj-setup.md` to match. The setup command is the first thing new users run — it must reflect reality.
 
 ## After Updating
 
