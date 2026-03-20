@@ -231,10 +231,80 @@ Everything in Low Effort, plus:
 - `.env.example` — document new env var
 - `src/crawllmer/app/web/streamlit_app.py` — session state section + run classification section + left column + auto-refresh
 
+## Amendment: UI as API Client (no direct DB or broker access)
+
+**Date**: 2026-03-19
+**Problem**: The Streamlit UI currently imports `repo` (direct database access) and `pipeline` (direct Celery broker access) from `runtime.py`. This means the UI service needs database credentials and broker URLs — making it a full peer of the API rather than a thin frontend. In production (Railway), this causes issues: the UI needs all the same infra vars as the API, and crawl enqueuing bypasses the API entirely.
+
+**Principle**: The UI should be a pure HTTP client of the API. All data reads and writes go through the REST API. The UI needs only one config value: the API base URL.
+
+### Changes
+
+**1. New config: `api_base_url`**
+```python
+# core/config.py
+api_base_url: str = "http://localhost:8000"
+# env: CRAWLLMER_API_BASE_URL
+```
+
+**2. New module: `app/web/api_client.py`**
+
+Thin HTTP client wrapping the REST API:
+```python
+class CrawllmerApiClient:
+    def __init__(self, base_url: str): ...
+    def enqueue_crawl(self, url: str) -> dict: ...      # POST /api/v1/crawls
+    def get_run(self, run_id: str) -> dict: ...          # GET /api/v1/crawls/{id}
+    def get_llms_txt(self, run_id: str) -> str: ...      # GET /api/v1/crawls/{id}/llms.txt
+    def get_events(self, run_id: str) -> list: ...       # GET /api/v1/crawls/{id}/events
+    def list_runs(self, limit: int = 50) -> list: ...    # GET /api/v1/history
+    def list_work_items(self, run_id: str) -> list: ...  # needs new API endpoint
+```
+
+**3. Replace `runtime.py`**
+
+Remove `repo`, `queue`, `pipeline` imports. Replace with:
+```python
+from crawllmer.app.web.api_client import CrawllmerApiClient
+from crawllmer.core.config import get_settings
+
+client = CrawllmerApiClient(get_settings().api_base_url)
+```
+
+**4. Update `streamlit_app.py`**
+
+Replace all `repo.*` and `pipeline.*` calls with `client.*` calls. The UI no longer imports anything from `adapters`, `core/orchestrator`, or `app/indexer`.
+
+**5. New API endpoint needed: `GET /api/v1/crawls/{run_id}/work-items`**
+
+The UI currently calls `repo.list_work_items(run_id)` for the stage progress display. This needs a REST endpoint.
+
+**6. Railway simplification**
+
+The UI service only needs:
+```
+CRAWLLMER_API_BASE_URL=http://api.railway.internal:8000
+```
+No database, broker, or storage vars required.
+
+### What stays the same
+- All rendering functions — unchanged (they accept data, not repo objects)
+- CSS, navbar, page config — unchanged
+- The API service is unchanged — it already exposes all needed endpoints
+
+### Files changed
+- `src/crawllmer/core/config.py` — add `api_base_url`
+- `src/crawllmer/app/web/api_client.py` — new HTTP client module
+- `src/crawllmer/app/web/runtime.py` — replace repo/pipeline with api_client
+- `src/crawllmer/app/web/streamlit_app.py` — replace repo/pipeline calls with client calls
+- `src/crawllmer/app/api/routes.py` — add `/api/v1/crawls/{run_id}/work-items` endpoint
+- `.env.example` — add `CRAWLLMER_API_BASE_URL`
+
 ## Approval State
 
 | Status | Date | Notes |
 |--------|------|-------|
 | Draft | 2026-03-18 | Initial draft |
 | Approved | 2026-03-18 | Low effort scope approved |
-| Amendment | 2026-03-19 | Replace session-state tracking with DB polling — pending review |
+| Amendment | 2026-03-19 | Replace session-state tracking with DB polling |
+| Amendment | 2026-03-19 | UI as API client — remove direct DB/broker access |
