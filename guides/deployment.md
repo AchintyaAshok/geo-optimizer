@@ -72,7 +72,7 @@ make distributed-up
 Everything above plus OTEL Collector, Jaeger, Prometheus, and Grafana:
 
 ```bash
-make full-stack-distributed-up
+make otel-up
 ```
 
 | Service | Port | Purpose |

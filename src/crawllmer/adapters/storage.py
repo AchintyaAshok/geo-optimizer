@@ -401,9 +401,7 @@ class SqliteStorageRepository(SqlAlchemyStorageRepository):
     """SQLite-backed storage with thread-safety and race-condition handling."""
 
     def __init__(self, db_url: str = "sqlite:///./crawllmer.db") -> None:
-        engine = create_engine(
-            db_url, connect_args={"check_same_thread": False}
-        )
+        engine = create_engine(db_url, connect_args={"check_same_thread": False})
         try:
             super().__init__(engine)
         except OperationalError:

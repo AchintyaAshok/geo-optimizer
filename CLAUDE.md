@@ -28,7 +28,7 @@ make run-dev           # All three together
 make docker-up                     # SQLite default (api + worker + ui)
 make redis-up                      # + Redis broker
 make distributed-up                # + Postgres + Redis
-make full-stack-distributed-up     # + OTEL/Jaeger/Prometheus/Grafana
+make otel-up     # + OTEL/Jaeger/Prometheus/Grafana
 
 # Operations
 make crawl-status      # Show status of all crawl runs
@@ -100,7 +100,7 @@ OpenTelemetry is the single telemetry protocol for traces, metrics, and structur
 - **Dual-mode exporters**: When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, OTLP gRPC exporters send to a collector. When unset, console exporters print telemetry to stdout (local dev default)
 - **Auto-instrumentation**: FastAPI, httpx, Celery, SQLite3 — zero-effort spans for all requests, outbound calls, tasks, and DB queries
 - **Custom telemetry**: `PipelineTelemetry` in `observability.py` provides pipeline-specific metrics and span events
-- **Stack**: `make full-stack-distributed-up` starts the full stack — OTEL Collector (:4317), Jaeger (:16686), Prometheus (:9090), Grafana (:3000)
+- **Stack**: `make otel-up` starts the full stack — OTEL Collector (:4317), Jaeger (:16686), Prometheus (:9090), Grafana (:3000)
 - **Config**: `infra/otel-collector-config.yaml`, `infra/prometheus/prometheus.yml`, `infra/grafana/provisioning/`
 
 ## Key Specs

@@ -81,7 +81,7 @@ The default configuration uses SQLite for everything — no external services re
 make docker-up                    # SQLite default (api + worker + ui)
 make redis-up                     # + Redis broker
 make distributed-up               # + Postgres + Redis (production-like)
-make full-stack-distributed-up    # + OTEL/Jaeger/Prometheus/Grafana
+make otel-up    # + OTEL/Jaeger/Prometheus/Grafana
 ```
 
 Full deployment guide: **[guides/deployment.md](guides/deployment.md)**

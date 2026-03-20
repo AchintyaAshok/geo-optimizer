@@ -137,7 +137,7 @@ PRDs are managed separately. Never move them to docs/ or reference them from gui
 After updating docs, read `.claude/commands/proj-setup.md` and check it against the current state:
 
 - Do the questionnaire options still match available storage backends in `core/config.py`?
-- Do the referenced Makefile targets (`docker-up`, `redis-up`, `distributed-up`, `full-stack-distributed-up`) still exist?
+- Do the referenced Makefile targets (`docker-up`, `redis-up`, `distributed-up`, `otel-up`) still exist?
 - Do the env file names (`.env.example`, `.env.redis`, `.env.local-distributed`) still exist?
 - Are the verification commands (`curl /health`, Streamlit URL) still correct?
 - If new configuration options were added (e.g., new `Settings` fields), should `/proj-setup` ask about them?

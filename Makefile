@@ -1,4 +1,4 @@
-.PHONY: sync test test-one lint lint-fix lint-path lint-fix-path format check run-api run-ui run-worker run-dev docker-up redis-up distributed-up full-stack-distributed-up clean-db clean stop restart crawl-status inttest inttest-list help
+.PHONY: sync test test-one lint lint-fix lint-path lint-fix-path format check run-api run-ui run-worker run-dev docker-up redis-up distributed-up otel-up clean-db clean stop restart crawl-status inttest inttest-list help
 
 # ─── Setup ───────────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ redis-up:  ## Docker: + Redis broker (SQLite DB)
 distributed-up:  ## Docker: Postgres + Redis (production-like)
 	docker compose --profile distributed --env-file .env.local-distributed up --build
 
-full-stack-distributed-up:  ## Docker: Postgres + Redis + OTEL/Jaeger/Prometheus/Grafana
+otel-up:  ## Docker: Postgres + Redis + OTEL/Jaeger/Prometheus/Grafana
 	docker compose --profile distributed --env-file .env.local-distributed -f docker-compose.yml -f docker-compose.otel.yml up --build
 
 # ─── Cleanup ─────────────────────────────────────────────────────────────────

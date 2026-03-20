@@ -55,7 +55,7 @@ If they pick Redis and aren't using Docker, ask for the Redis URL (default: `red
 > - **(a) No** — telemetry prints to console (default)
 > - **(b) Yes** — export to a collector
 
-If yes, ask for the endpoint (default: `http://localhost:4317`). Mention they can run `make full-stack-distributed-up` to get a local OTEL stack with Jaeger/Prometheus/Grafana.
+If yes, ask for the endpoint (default: `http://localhost:4317`). Mention they can run `make otel-up` to get a local OTEL stack with Jaeger/Prometheus/Grafana.
 
 ## Generate the .env file
 
