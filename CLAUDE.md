@@ -87,6 +87,7 @@ See `.env.example` for the full list with inline documentation.
 | `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery results (use `redis://...` for Redis) |
 | `CRAWLLMER_LOG_LEVEL` | `DEBUG` | Logging severity (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
 | `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval |
+| `CRAWLLMER_API_BASE_URL` | `http://localhost:8000` | API URL for the Streamlit UI |
 | `CRAWLLMER_UI_REFRESH_SECONDS` | `2` | Streamlit UI auto-refresh interval |
 | `CRAWLLMER_SPIDER_MAX_DEPTH` | `3` | Max link hops for fallback spider |
 | `CRAWLLMER_SPIDER_MAX_SCAN_PAGES` | `100` | Max pages to scan in spider Phase 1 |

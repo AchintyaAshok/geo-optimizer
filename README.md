@@ -95,6 +95,7 @@ Full deployment guide: **[guides/deployment.md](guides/deployment.md)**
 | `POST` | `/api/v1/crawls/{run_id}/process` | Execute the pipeline synchronously |
 | `GET` | `/api/v1/crawls/{run_id}` | Get run status and score |
 | `GET` | `/api/v1/crawls/{run_id}/llms.txt` | Download generated llms.txt |
+| `GET` | `/api/v1/crawls/{run_id}/work-items` | Get pipeline stage work items |
 | `GET` | `/api/v1/crawls/{run_id}/events` | Get pipeline event log |
 | `GET` | `/api/v1/history` | List recent runs (optional `?host=` filter) |
 

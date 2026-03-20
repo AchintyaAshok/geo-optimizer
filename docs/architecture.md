@@ -72,7 +72,8 @@ Three application runtimes sharing core, domain, and adapters.
 #### Web (`app/web/`)
 
 - **`streamlit_app.py`** — Master-detail UI with navbar, active crawl tracking, live events, score metrics, and llms.txt preview.
-- **`runtime.py`** — Shared module that initializes `repo`, `queue`, and `pipeline` singletons.
+- **`api_client.py`** — HTTP client wrapping the REST API. All data reads and writes go through the API.
+- **`runtime.py`** — Initializes the `CrawllmerApiClient` with the configured API base URL.
 
 #### Indexer (`app/indexer/`)
 
@@ -130,7 +131,7 @@ See [guides/pipeline.md](../guides/pipeline.md) for full stage documentation.
 ```
 
 - **API process** — Uvicorn serving FastAPI. Handles HTTP requests, delegates to pipeline.
-- **UI process** — Streamlit app. Shares the same runtime (repository, pipeline) as the API.
+- **UI process** — Streamlit app. Delegates all data operations to the API via HTTP client — no direct database or broker access.
 - **Worker process** — Celery worker. Dequeues tasks and runs the pipeline.
 - **Shared core** — All three processes use the same domain models, orchestrator, and worker functions.
 - **Persistence** — SQLite file stores crawl runs, work items, extracted pages, and artifacts.
