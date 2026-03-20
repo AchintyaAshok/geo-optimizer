@@ -46,6 +46,33 @@ curl http://localhost:8000/api/v1/crawls/<RUN_ID>/llms.txt
 
 Or use the Streamlit UI at `http://localhost:8501` — paste a URL, click **Crawl**, and watch the pipeline stages progress in real time.
 
+### What it looks like
+
+Queue up multiple crawls and watch them process in parallel:
+
+![Multiple crawls queued in the Streamlit UI](docs/images/local_workflow_1.png)
+
+Drill into a completed crawl to see the pipeline timeline and event log:
+
+![Detailed view of a single crawl run](docs/images/local_workflow_2.png)
+
+View the generated llms.txt output directly in the UI:
+
+![Generated llms.txt output](docs/images/local_workflow_3.png)
+
+## Try It Live
+
+> **Note:** This deployment is temporary and will not be supported long-term. It exists as a demo of the fully deployed system.
+
+crawllmer is deployed on [Railway](https://railway.app/) with five services: the Streamlit UI, FastAPI API, Celery worker, Redis (broker), and Postgres (database). Each service uses the same `Dockerfile` with a per-service `railway.toml` override (see [`railway/`](railway/)).
+
+| Service | URL |
+|---------|-----|
+| Streamlit UI | [ui-production-0412.up.railway.app](https://ui-production-0412.up.railway.app/) |
+| API (Swagger docs) | [api-production-f5ff.up.railway.app/docs](https://api-production-f5ff.up.railway.app/docs) |
+
+![Railway deployment topology](docs/images/railway_deployment_live.png)
+
 ## How It Works
 
 crawllmer runs a five-stage pipeline for every URL:
