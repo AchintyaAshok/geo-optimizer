@@ -12,6 +12,8 @@ A queue-driven web application that generates spec-compliant [llms.txt](https://
 
 ## Quick Start
 
+Using [Claude Code](https://claude.ai/code)? Run `/proj-setup` for a guided walkthrough that generates your `.env` and verifies everything works.
+
 ```bash
 make sync
 cp .env.example .env   # adjust values as needed
@@ -71,24 +73,16 @@ make run-worker           # Celery worker (SQLite broker)
 make run-dev              # All three together
 ```
 
-The default configuration uses SQLite for everything — the app database, Celery broker, and result backend. No external services required.
+The default configuration uses SQLite for everything — no external services required.
 
 ### Docker
 
 ```bash
-docker compose up --build                     # API + worker (SQLite Celery broker)
-curl http://localhost:8000/health             # verify
+make docker-up                    # SQLite default (api + worker + ui)
+make redis-up                     # + Redis broker
+make distributed-up               # + Postgres + Redis (production-like)
+make full-stack-distributed-up    # + OTEL/Jaeger/Prometheus/Grafana
 ```
-
-### Docker + Redis
-
-For production-like setups with Redis as the Celery broker:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.redis.yml up --build
-```
-
-This adds a Redis container and routes Celery through it instead of SQLite.
 
 Full deployment guide: **[guides/deployment.md](guides/deployment.md)**
 
@@ -108,25 +102,19 @@ Full API details with request/response shapes: **[guides/api.md](guides/api.md)*
 
 ## Configuration
 
-All configuration is via environment variables. Copy `.env.example` to `.env` to override defaults:
-
 ```bash
-cp .env.example .env
+cp .env.example .env    # SQLite defaults — works out of the box
 ```
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `CRAWLLMER_DB_URL` | `sqlite:///./crawllmer.db` | Application database |
-| `CRAWLLMER_CELERY_BROKER_URL` | `sqla+sqlite:///./celery-broker.db` | Celery broker URL |
-| `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery result backend |
-| `CRAWLLMER_LOG_LEVEL` | `DEBUG` | Logging severity (DEBUG/INFO/WARNING/ERROR/CRITICAL) |
-| `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval |
-| `CRAWLLMER_UI_REFRESH_SECONDS` | `2` | Streamlit UI polling interval |
-| `CRAWLLMER_SPIDER_MAX_DEPTH` | `3` | Max link hops for fallback spider |
-| `CRAWLLMER_SPIDER_MAX_SCAN_PAGES` | `100` | Max pages to scan in spider Phase 1 |
-| `CRAWLLMER_SPIDER_MAX_INDEX_PAGES` | `50` | Max pages to index in spider Phase 2 |
+| `CRAWLLMER_STORAGE_BACKEND` | `sqlite` | Database backend: `sqlite` or `pgsql` |
+| `CRAWLLMER_DB_URL` | `sqlite:///./crawllmer.db` | SQLite connection URL |
+| `CRAWLLMER_CELERY_BROKER_URL` | `sqla+sqlite:///./celery-broker.db` | Celery broker (use `redis://` for Redis) |
+| `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery results (use `redis://` for Redis) |
+| `CRAWLLMER_LOG_LEVEL` | `DEBUG` | Logging severity |
 
-For Redis: set broker to `redis://localhost:6379/0` and result backend to `redis://localhost:6379/1`.
+For Postgres, Redis, Docker profiles, OTEL, and all other variables: **[guides/environment.md](guides/environment.md)**
 
 ## Architecture
 
@@ -149,7 +137,7 @@ The project follows a **hexagonal architecture** (ports & adapters):
                ┌───────────────▼──────┐  ┌──────────▼──────────┐
                │    Domain Layer      │  │    Adapters          │
                │                      │  │                      │
-               │  Models (Pydantic)   │  │  SqliteCrawlRepo     │
+               │  Models (Pydantic)   │  │  StorageRepository   │
                │  Ports (ABCs)        │  │  CeleryQueuePublisher│
                └──────────────────────┘  └──────────────────────┘
 ```
@@ -249,7 +237,8 @@ Full Makefile reference: run `make help` or see the [Makefile](Makefile) (all ta
 |-------|-------------|
 | [Pipeline](guides/pipeline.md) | Deep dive into the five-stage processing pipeline |
 | [API Reference](guides/api.md) | Complete API documentation with request/response examples |
-| [Deployment](guides/deployment.md) | Local, Docker, and Redis deployment options |
+| [Deployment](guides/deployment.md) | Local, Docker, and distributed deployment options |
+| [Environment](guides/environment.md) | All configuration variables, storage backends, Docker profiles |
 | [llms.txt Generation](guides/llms-txt-generation.md) | Output format, section grouping, caveats, and known limitations |
 
 ## Documentation
@@ -271,3 +260,11 @@ This project includes a Claude Code slash command for refreshing documentation a
 ```
 
 It reads the current source code, diffs against the existing docs, and surgically updates only what's stale — README sections, guides, docs, and Makefile comments. See [`.claude/commands/proj-refresh-docs.md`](.claude/commands/proj-refresh-docs.md) for the full specification including README structure rules, guides vs docs guidelines, and negative examples.
+
+### `/proj-setup` — Guided Project Setup
+
+```
+/proj-setup
+```
+
+Interactive questionnaire that walks you through runtime mode (local/Docker/distributed), storage backend (SQLite/Postgres), Celery broker, and OTEL — then generates your `.env` file and verifies the setup.
