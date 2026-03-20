@@ -122,39 +122,37 @@ For Postgres, Redis, Docker profiles, OTEL, and all other variables: **[guides/e
 The project follows a **hexagonal architecture** (ports & adapters):
 
 ```
-                    ┌───────────────────────────────────────────┐
-                    │             Interface Layer                │
-                    │                                           │
-                    │   FastAPI (REST API)    Streamlit (UI)     │
-                    └──────────┬────────────────────┬───────────┘
-                               │                    │
-                    ┌──────────▼────────────────────▼───────────┐
-                    │           Application Core                │
-                    │                                           │
-                    │   CrawlPipeline    Workers    Scheduler   │
-                    │   RetryPolicy      Observability          │
-                    └──────────┬────────────────────┬───────────┘
-                               │                    │
-               ┌───────────────▼──────┐  ┌──────────▼──────────┐
-               │    Domain Layer      │  │    Adapters          │
-               │                      │  │                      │
-               │  Models (Pydantic)   │  │  StorageRepository   │
-               │  Ports (ABCs)        │  │  CeleryQueuePublisher│
-               └──────────────────────┘  └──────────────────────┘
+     ┌──────────────┐        ┌──────────────────────────────────┐
+     │ Streamlit UI │──HTTP──│          FastAPI (REST API)       │
+     └──────────────┘        └──────────┬───────────────────────┘
+                                        │
+                             ┌──────────▼───────────────────────┐
+                             │        Application Core           │
+                             │                                   │
+                             │  CrawlPipeline   Spider   Workers │
+                             │  RetryPolicy     Scheduler        │
+                             └──────────┬───────────┬───────────┘
+                                        │           │
+                          ┌─────────────▼──┐  ┌─────▼──────────┐
+                          │  Domain Layer  │  │   Adapters      │
+                          │                │  │                 │
+                          │ Models (Pydantic)│ │ StorageRepo    │
+                          │ Ports (ABCs)   │  │ CeleryPublisher│
+                          └────────────────┘  └────────────────┘
 ```
 
 Source code in `src/crawllmer/`:
 
 ```
 src/crawllmer/
-├── core/               # config, errors, orchestrator, retry, scheduler
+├── core/               # config, errors, orchestrator, retry, scheduler, scoring, generation
 │   └── observability/  # telemetry_setup, pipeline_telemetry, events
 ├── domain/             # models.py, ports.py — pure domain logic and abstract interfaces
-├── adapters/           # storage.py — SQLModel/SQLite persistence
+├── adapters/           # storage.py — SQLModel persistence (SQLite + Postgres)
 └── app/                # Three application runtimes
-    ├── api/            # main.py (FastAPI entrypoint), routes.py (endpoints)
-    ├── web/            # streamlit_app.py (Streamlit UI), runtime.py
-    └── indexer/        # app.py (Celery), __main__.py (worker), workers.py, queueing.py
+    ├── api/            # main.py (FastAPI), routes.py (endpoints)
+    ├── web/            # streamlit_app.py (UI), api_client.py (HTTP client), runtime.py
+    └── indexer/        # app.py (Celery), workers.py, spider.py, page_indexer.py, link_filter.py
 ```
 
 Full architecture documentation: **[docs/architecture.md](docs/architecture.md)**
