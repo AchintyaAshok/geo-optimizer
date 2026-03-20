@@ -12,11 +12,11 @@ Key technical decisions and the trade-offs behind them.
 
 ## Hierarchical Discovery Strategy
 
-**Decision**: Check `/llms.txt` first, then `robots.txt`, then `sitemap.xml`, then fall back to the seed URL.
+**Decision**: Check `/llms.txt` first, then `robots.txt`, then `sitemap.xml`, then fall back to a BFS spider crawl.
 
-**Why**: If a site already publishes an `llms.txt` file, that's the canonical source and we should respect it. The robots → sitemap → seed fallback chain gives us broad page coverage even when `llms.txt` doesn't exist. This order minimizes unnecessary HTTP requests — most sites will hit on one of the first two strategies.
+**Why**: If a site already publishes an `llms.txt` file, that's the canonical source and we should respect it. The robots → sitemap fallback chain gives broad page coverage. When none of these exist, a bounded BFS spider follows `<a href>` links from the seed URL, building an in-link count map to rank pages by importance. The top-N pages (configurable via `CRAWLLMER_SPIDER_MAX_INDEX_PAGES`) are indexed.
 
-**Trade-off**: We don't do deep recursive crawling. This is intentional: the goal is to produce a useful `llms.txt` quickly, not to spider an entire website. The sitemap strategy handles large sites well, and the fallback seed ensures we always have at least one page.
+**Trade-off**: The spider adds crawl time (10-30s for moderate sites) but produces far better results than the previous single-page fallback. Depth and page limits prevent unbounded crawling.
 
 ## Confidence-Scored Metadata Extraction
 
@@ -32,7 +32,7 @@ Key technical decisions and the trade-offs behind them.
 
 **Why**: Zero external dependencies for local development. A developer can `make sync && make run-dev` and have a working system without installing Redis, Postgres, or any other service. SQLite is more than sufficient for the single-user, moderate-throughput use case this app targets.
 
-**Trade-off**: SQLite has write concurrency limitations. For multi-worker production deployments, we provide a Redis compose extension that swaps the Celery broker and result backend to Redis. The app database stays SQLite because SQLModel handles it well and the read/write patterns are simple.
+**Trade-off**: SQLite has write concurrency limitations. For production, we support Postgres (`CRAWLLMER_STORAGE_BACKEND=pgsql`) with Redis for the Celery broker. Docker Compose profiles (`redis`, `distributed`) make it easy to switch. SQLite remains the default for zero-dependency local development.
 
 ## Celery Task Queue
 
@@ -68,9 +68,9 @@ The `/process` endpoint currently runs the pipeline synchronously (blocking the 
 
 **Decision**: Provide both a REST API and a Streamlit UI.
 
-**Why**: Different users have different needs. The REST API is for programmatic access, integrations, and CI/CD pipelines. The Streamlit UI is for interactive use — paste a URL, watch stages progress, inspect results. Both share the same backend (`runtime.py` initializes shared repository and pipeline instances).
+**Why**: Different users have different needs. The REST API is for programmatic access, integrations, and CI/CD pipelines. The Streamlit UI is for interactive use — paste a URL, watch stages progress, inspect results. The UI delegates all operations to the API via an HTTP client (`api_client.py`) — it has no direct database or broker access.
 
-**Trade-off**: Two UI surfaces to maintain. Streamlit is low-maintenance by design (it's a single Python file), and the API is thin (routes delegate to the pipeline orchestrator).
+**Trade-off**: Two UI surfaces to maintain. Streamlit is low-maintenance by design (it's a single Python file), and the API is thin (routes delegate to the pipeline orchestrator). The UI-as-API-client architecture means the UI service only needs one config var (`CRAWLLMER_API_BASE_URL`).
 
 ## Retry Policy with Exponential Backoff
 
@@ -124,5 +124,15 @@ Each pipeline milestone is represented by a typed `EventMetadata` subclass (e.g.
 Each error class has an explicit `__init__` that stores structured attributes and produces a human-readable `str()`. This makes errors both programmatically inspectable (`exc.stage`, `exc.url`) and readable in tracebacks.
 
 **Approved exception**: `retry.py` retains a bare `except Exception` because a generic retry wrapper cannot know what exceptions its callable may raise. This is the only file exempt from the typed-exceptions rule.
+
+## Fresh Extraction (No Cached Validators)
+
+**Decision**: New crawl runs always fetch pages fresh — cached ETag/If-Modified-Since validators are not used.
+
+**Why**: The validator system stores `ETag` and `Last-Modified` headers from previous fetches. On subsequent requests, it sends conditional headers and skips pages that return `304 Not Modified`. This is correct for incremental re-crawls but wrong for new llms.txt generation — a user submitting a URL expects a complete result, not one that skips pages because they haven't changed since a previous run. In production, this caused empty llms.txt output on re-crawls of the same site.
+
+**What we keep**: Validators are still stored after each fetch (for future incremental re-crawl support). They're just not loaded when building a new run's extraction plan.
+
+**Trade-off**: Every run re-downloads all pages, even if unchanged. This is the correct default for a generation tool. Incremental re-crawl (using validators to skip unchanged pages) is a future optimization that would need explicit user opt-in.
 
 **Trade-off**: More exception classes to maintain. The hierarchy is small (7 classes) and each maps to a distinct failure mode, so the cognitive overhead is low.
