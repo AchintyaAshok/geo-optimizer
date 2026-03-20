@@ -1,6 +1,6 @@
 # Deployment Guide
 
-crawllmer has three runtime processes and supports local, Docker, and Redis-backed deployments.
+crawllmer has three runtime processes and supports local, Docker, and distributed deployments.
 
 ## Processes
 
@@ -22,36 +22,16 @@ All three share the same database and can run independently or together with `ma
 ### Install and Run
 
 ```bash
-uv sync               # install dependencies
+make sync              # install dependencies
+cp .env.example .env   # adjust values as needed
 make run-dev           # start all three processes
 ```
 
 `make run-dev` launches API, UI, and worker in parallel. `Ctrl-C` stops all of them.
 
-Alternatively, run each in its own terminal:
-
-```bash
-# Terminal 1
-make run-api
-
-# Terminal 2
-make run-ui
-
-# Terminal 3
-make run-worker
-```
-
 ### Default Configuration
 
-Out of the box, everything uses SQLite:
-
-| Variable | Default |
-|----------|---------|
-| `CRAWLLMER_DB_URL` | `sqlite:///./crawllmer.db` |
-| `CRAWLLMER_CELERY_BROKER_URL` | `sqla+sqlite:///./celery-broker.db` |
-| `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` |
-
-No external services required. Database files are created automatically in the project root.
+Out of the box, everything uses SQLite — no external services required. See [guides/environment.md](environment.md) for all configuration options.
 
 ### Resetting State
 
@@ -63,70 +43,62 @@ make clean             # delete venv, caches, and DB files (run `make sync` afte
 
 ## Docker
 
-### SQLite-Backed (Baseline)
+### SQLite (default)
 
 ```bash
-docker compose up --build
+make docker-up
 ```
 
-This starts:
-- **api** — FastAPI on port 8000 with a healthcheck at `/health`
-- **worker** — Celery worker, starts after the API is healthy
+Starts api, worker, and ui containers. SQLite files stored in a Docker volume.
 
-Both containers share a Docker volume (`crawllmer-db`) for SQLite files at `/app/data/`.
+### Redis Broker
 
-Verify:
-```bash
-curl http://localhost:8000/health
-```
-
-### Redis-Backed
-
-For higher throughput or multi-worker setups, add the Redis extension profile:
+Adds Redis for Celery while keeping SQLite for the app database:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.redis.yml up --build
+make redis-up
 ```
 
-This adds:
-- **redis** — Redis 7 on port 6379
-- **worker-redis** — A second worker using Redis for broker and result backend
+### Distributed (Postgres + Redis)
 
-The Redis worker uses:
-- Broker: `redis://redis:6379/0`
-- Result backend: `redis://redis:6379/1`
+Production-like setup with Postgres and Redis:
 
-### Docker Environment Variables
-
-The containers use the same environment variables as local development, pre-configured in the compose files to point to `/app/data/` paths:
-
-```yaml
-CRAWLLMER_DB_URL: sqlite:////app/data/crawllmer.db
-CRAWLLMER_CELERY_BROKER_URL: sqla+sqlite:////app/data/celery-broker.db
-CRAWLLMER_CELERY_RESULT_BACKEND: db+sqlite:////app/data/celery-results.db
+```bash
+make distributed-up
 ```
 
-Override with `-e` or an `--env-file` for custom configurations.
+### Full Stack with Observability
 
-## Environment Variables Reference
+Everything above plus OTEL Collector, Jaeger, Prometheus, and Grafana:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `CRAWLLMER_DB_URL` | `sqlite:///./crawllmer.db` | SQLModel database URL |
-| `CRAWLLMER_CELERY_BROKER_URL` | `sqla+sqlite:///./celery-broker.db` | Celery message broker |
-| `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery result storage |
-| `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval (seconds) |
-
-### Using Redis
-
-To switch from SQLite to Redis for Celery:
-
-```env
-CRAWLLMER_CELERY_BROKER_URL=redis://localhost:6379/0
-CRAWLLMER_CELERY_RESULT_BACKEND=redis://localhost:6379/1
+```bash
+make full-stack-distributed-up
 ```
 
-The application database (`CRAWLLMER_DB_URL`) always uses SQLite — only the Celery broker and result backend can be swapped to Redis.
+| Service | Port | Purpose |
+|---------|------|---------|
+| API | 8000 | REST endpoints |
+| Streamlit | 8501 | Web UI |
+| Jaeger | 16686 | Trace viewer |
+| Prometheus | 9090 | Metrics |
+| Grafana | 3000 | Dashboards |
+
+### How Profiles Work
+
+The `docker-compose.yml` uses Docker Compose profiles to toggle infrastructure:
+
+- **No profile** → SQLite everything
+- **`redis`** → adds Redis (Celery broker only)
+- **`distributed`** → adds Redis + Postgres
+
+App services (api, worker, ui) always start. Environment variables are injected via `--env-file`:
+
+```bash
+# Explicit form (equivalent to make targets)
+docker compose --profile distributed --env-file .env.local-distributed up --build
+```
+
+See [guides/environment.md](environment.md) for env file details and all configuration variables.
 
 ## Process Management
 
@@ -134,5 +106,3 @@ The application database (`CRAWLLMER_DB_URL`) always uses SQLite — only the Ce
 make stop              # kill all running crawllmer processes
 make restart           # stop → clean DBs → start fresh
 ```
-
-`make stop` sends SIGTERM to uvicorn, streamlit, and worker processes by name. `make restart` chains stop, clean-db, and run-dev.
