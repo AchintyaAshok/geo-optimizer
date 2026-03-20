@@ -217,7 +217,9 @@ Full architecture documentation: **[docs/architecture.md](docs/architecture.md)*
 - **Pluggable storage** — `sqlite` or `pgsql` via a single config switch. Backend-specific engine tuning via repository subclasses.
 - **Pipeline event auditability** — Every spider scan, page extraction, and error is recorded as a `CrawlEvent` visible via the events API.
 - **Task reliability** — `acks_late` + `reject_on_worker_lost` ensures crashed workers don't lose tasks. Idempotent pipeline makes redelivery safe.
-- **Single Dockerfile** — One image for all three services. Entrypoint overridden per service via Compose or Railway config.
+- **Typed error hierarchy** — `CrawllmerError` base with specific subclasses mapping to HTTP status codes (422, 404, 500). Causal chain preserved via `__cause__`.
+- **OpenTelemetry observability** — Traces, metrics, and structured logs with dual-mode exporters (OTEL Collector or console fallback). Business metrics separate from pipeline telemetry.
+- **Deployment topology** — Docker Compose profiles (`distributed` + OTEL overlay) or Railway with per-service `railway.toml`. Three services, one Dockerfile.
 - **Deterministic output** — Entries sorted by URL, grouped by top-level path into H2 sections per the llmstxt.org spec.
 
 Full rationale and trade-offs: **[docs/design_decisions.md](docs/design_decisions.md)**

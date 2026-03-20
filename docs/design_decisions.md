@@ -90,27 +90,15 @@ The `/process` endpoint currently runs the pipeline synchronously (blocking the 
 
 ## OpenTelemetry Observability
 
-**Decision**: Instrument the pipeline with OpenTelemetry metrics and spans.
+The pipeline is instrumented with OpenTelemetry traces, metrics, and structured logs. Auto-instrumentation covers FastAPI, httpx, Celery, and SQLite3. Custom `PipelineTelemetry` adds stage-level counters, duration histograms, and nested spans. Dual-mode exporters send to an OTEL Collector (gRPC) when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, or fall back to console output for local dev. No collector required to run — telemetry degrades gracefully.
 
-**Why**: The pipeline has multiple stages with network I/O, and debugging failures requires knowing what happened at each stage. OTel provides:
-- Counters for state transitions, run outcomes, and stage outcomes
-- Histograms for stage durations
-- Spans with attributes that nest inside a run-level parent span
-- Structured JSON logging via `log_event()`
+## Business Metrics (separate from pipeline telemetry)
 
-This is wired up but doesn't require an OTel collector to run — it degrades gracefully to local metrics.
+Stage-level telemetry (durations, state transitions) answers "what's slow?" but not "how many pages did we index?" Business metrics live on a separate `crawllmer.business` OTEL meter: `pages_indexed_total`, `run_duration_seconds`, `llmstxt_size_bytes`. Each milestone is a typed `EventMetadata` subclass whose `to_attributes()` drives both structured logging and metric recording — single emission point, no double-counting.
 
-**Trade-off**: The `opentelemetry-api` and `opentelemetry-sdk` dependencies. These are lightweight and don't impact runtime performance when no exporter is configured.
+## Deployment Topology
 
-## Observability Events (Business Metrics)
-
-**Decision**: Separate business-level metrics from stage-level pipeline telemetry, using structured event dataclasses as the single emission point.
-
-**Why**: The existing `PipelineTelemetry` tracks execution mechanics — stage durations, state transitions, outcome counters. These are useful for debugging but don't answer product-level questions like "how many pages did we index?" or "how big was the output?". Business metrics (`crawllmer_pages_indexed_total`, `crawllmer_run_duration_seconds`, `crawllmer_llmstxt_size_bytes`) live on a separate `crawllmer.business` OTEL meter and track run-level outcomes that matter to users.
-
-Each pipeline milestone is represented by a typed `EventMetadata` subclass (e.g. `DiscoveryCompletedEvent`, `RunCompletedEvent`). The event's `to_attributes()` method serialises its fields into OTEL-compatible key-value pairs. The same event object drives both structured log emission (via `log_event()`) and metric recording (via `BusinessMetrics`), ensuring a single emission point with no double-counting.
-
-**Trade-off**: More classes and a second OTEL meter. The separation keeps concerns clear — stage telemetry is internal debugging; business metrics are user-facing. The event dataclasses add a small amount of code but make the emission contract explicit and testable.
+Three application services (API, UI, Worker) can be deployed independently but share `core/`, `domain/`, and `adapters/`. In Docker Compose, profiles gate infrastructure: no profile = SQLite everything, `redis` = Redis broker, `distributed` = Postgres + Redis. The OTEL overlay (`docker-compose.otel.yml`) adds Collector → Jaeger + Prometheus + Grafana. On Railway, each service gets its own `railway.toml` with a start command override; inter-service communication uses Railway's private DNS (`*.railway.internal`).
 
 ## Error Handling
 
