@@ -39,3 +39,4 @@ htmlcov/
 .claude/worktrees/
 .playwright-mcp/
 tmp/
+docs/project_requirements.md
