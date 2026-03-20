@@ -62,17 +62,10 @@ services:
   ui:
     build: .
     environment:
-      CRAWLLMER_STORAGE_BACKEND: ${CRAWLLMER_STORAGE_BACKEND:-sqlite}
-      CRAWLLMER_DB_URL: ${CRAWLLMER_DB_URL:-sqlite:////app/data/crawllmer.db}
-      CRAWLLMER_PG_HOST: ${CRAWLLMER_PG_HOST:-}
-      CRAWLLMER_PG_PORT: ${CRAWLLMER_PG_PORT:-5432}
-      CRAWLLMER_PG_USER: ${CRAWLLMER_PG_USER:-}
-      CRAWLLMER_PG_PASSWORD: ${CRAWLLMER_PG_PASSWORD:-}
-      CRAWLLMER_PG_DATABASE: ${CRAWLLMER_PG_DATABASE:-}
-      CRAWLLMER_CELERY_BROKER_URL: ${CRAWLLMER_CELERY_BROKER_URL:-sqla+sqlite:////app/data/celery-broker.db}
-      CRAWLLMER_CELERY_RESULT_BACKEND: ${CRAWLLMER_CELERY_RESULT_BACKEND:-db+sqlite:////app/data/celery-results.db}
-    volumes:
-      - crawllmer-db:/app/data
+      CRAWLLMER_API_BASE_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
     command: ["uv", "run", "streamlit", "run", "src/crawllmer/app/web/streamlit_app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
     ports:
       - "8501:8501"
