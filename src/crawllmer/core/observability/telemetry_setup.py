@@ -83,5 +83,9 @@ def setup_telemetry(service_name: str) -> None:
     logger.setLevel(getattr(logging, get_settings().log_level))
     logger.addHandler(handler)
 
+    # Quiet noisy third-party loggers
+    for noisy in ("celery", "celery.app.trace", "celery.worker", "kombu"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     # Auto-instrumentation
     _instrument()
