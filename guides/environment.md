@@ -75,6 +75,9 @@ CRAWLLMER_CELERY_RESULT_BACKEND=redis://localhost:6379/1
 | `CRAWLLMER_PG_DATABASE` | — | Postgres database name (required when `pgsql`) |
 | `CRAWLLMER_CELERY_BROKER_URL` | `sqla+sqlite:///./celery-broker.db` | Celery message broker |
 | `CRAWLLMER_CELERY_RESULT_BACKEND` | `db+sqlite:///./celery-results.db` | Celery result storage |
+| `CRAWLLMER_CELERY_TASK_ACKS_LATE` | `true` | Ack tasks after completion (redelivery on worker crash) |
+| `CRAWLLMER_CELERY_TASK_REJECT_ON_WORKER_LOST` | `true` | Reject tasks back to queue if worker is killed |
+| `CRAWLLMER_CELERY_BROKER_VISIBILITY_TIMEOUT` | `3600` | Redis: redelivery timeout for unacked tasks (seconds) |
 | `CRAWLLMER_LOG_LEVEL` | `DEBUG` | Logging severity |
 | `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval |
 | `CRAWLLMER_API_BASE_URL` | `http://localhost:8000` | API URL for the Streamlit UI |

@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # ── Celery ─────────────────────────────────────────────────────────
     celery_broker_url: str = "sqla+sqlite:///./celery-broker.db"
     celery_result_backend: str = "db+sqlite:///./celery-results.db"
+    celery_task_acks_late: bool = True
+    celery_task_reject_on_worker_lost: bool = True
+    celery_broker_visibility_timeout: int = 3600
 
     # ── Logging ────────────────────────────────────────────────────────
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "DEBUG"

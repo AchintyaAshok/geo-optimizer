@@ -135,4 +135,16 @@ Each error class has an explicit `__init__` that stores structured attributes an
 
 **Trade-off**: Every run re-downloads all pages, even if unchanged. This is the correct default for a generation tool. Incremental re-crawl (using validators to skip unchanged pages) is a future optimization that would need explicit user opt-in.
 
-**Trade-off**: More exception classes to maintain. The hierarchy is small (7 classes) and each maps to a distinct failure mode, so the cognitive overhead is low.
+## Task Reliability (acks_late + reject_on_worker_lost)
+
+**Decision**: Configure Celery to acknowledge tasks after completion and reject them on worker loss.
+
+**Why**: The default Celery behavior acknowledges tasks before execution starts. If a worker crashes mid-crawl, the task is lost — the run stays in `queued`/`running` in the database forever. With `acks_late=True`, the broker retains the message until the worker explicitly acknowledges it after completion. If the worker dies, the broker automatically redelivers the task to another worker.
+
+**What this protects against**: Worker crashes, OOM kills, graceful restarts — any scenario where the worker process dies but the broker (Redis) is healthy.
+
+**What this does NOT protect against**: Broker failures (Redis restart, data loss). If the broker loses messages, runs stuck in `queued`/`running` in the database become orphans with no corresponding task in the queue. Recovering those requires a separate stale-run-recovery mechanism (database scan + re-enqueue) which is not yet implemented.
+
+**Why it's safe**: Our pipeline stages are idempotent — they use upserts, not inserts. Re-executing a partially completed run overwrites previous results and fills in gaps. The only side effect is duplicate event records (append-only audit trail), which is harmless.
+
+**Trade-off**: Tasks can be executed more than once on worker failure. This is acceptable because of the idempotent design. The `visibility_timeout` (default 1 hour for Redis) must be longer than the longest expected crawl to avoid premature redelivery.
