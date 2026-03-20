@@ -45,6 +45,7 @@ class Settings(BaseSettings):
 
     # ── Worker ─────────────────────────────────────────────────────────
     worker_poll_seconds: int = 2
+    celery_worker_concurrency: int = 4
 
     # ── UI ─────────────────────────────────────────────────────────────
     ui_refresh_seconds: int = 2
@@ -79,6 +80,13 @@ class Settings(BaseSettings):
         if self.storage_backend == "pgsql":
             return {"pool_pre_ping": True, "pool_size": 5}
         return {"connect_args": {"check_same_thread": False}}
+
+    @property
+    def celery_worker_pool(self) -> str:
+        """Derive Celery pool type from broker: prefork for Redis, solo for SQLite."""
+        if self.celery_broker_url.startswith("redis"):
+            return "prefork"
+        return "solo"
 
     @property
     def spider_extensions_set(self) -> set[str]:
