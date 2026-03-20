@@ -1,17 +1,36 @@
+# ── App + Infra Compose ──────────────────────────────────────────────
+#
+# Profiles:
+#   (none)        → api + worker + ui with SQLite (default)
+#   redis         → + Redis (Celery broker only, SQLite DB)
+#   distributed   → + Redis + Postgres (production-like)
+#
+# Usage:
+#   docker compose up --build                                          # SQLite default
+#   docker compose --profile redis up --build                          # + Redis broker
+#   docker compose --profile distributed --env-file .env.local-distributed up --build
+#
+# See guides/environment.md for full configuration reference.
+# ─────────────────────────────────────────────────────────────────────
+
 services:
+  # ── Application services (always start) ────────────────────────────
+
   api:
-    image: python:3.12-slim
-    working_dir: /app
+    build: .
     volumes:
-      - ./:/app
       - crawllmer-db:/app/data
     environment:
-
-      CRAWLLMER_DB_URL: sqlite:////app/data/crawllmer.db
-      CRAWLLMER_CELERY_BROKER_URL: sqla+sqlite:////app/data/celery-broker.db
-      CRAWLLMER_CELERY_RESULT_BACKEND: db+sqlite:////app/data/celery-results.db
-    command: >
-      bash -lc "pip install uv && uv sync && uv run uvicorn crawllmer.app.api.main:app --host 0.0.0.0 --port 8000"
+      CRAWLLMER_STORAGE_BACKEND: ${CRAWLLMER_STORAGE_BACKEND:-sqlite}
+      CRAWLLMER_DB_URL: ${CRAWLLMER_DB_URL:-sqlite:////app/data/crawllmer.db}
+      CRAWLLMER_PG_HOST: ${CRAWLLMER_PG_HOST:-}
+      CRAWLLMER_PG_PORT: ${CRAWLLMER_PG_PORT:-5432}
+      CRAWLLMER_PG_USER: ${CRAWLLMER_PG_USER:-}
+      CRAWLLMER_PG_PASSWORD: ${CRAWLLMER_PG_PASSWORD:-}
+      CRAWLLMER_PG_DATABASE: ${CRAWLLMER_PG_DATABASE:-}
+      CRAWLLMER_CELERY_BROKER_URL: ${CRAWLLMER_CELERY_BROKER_URL:-sqla+sqlite:////app/data/celery-broker.db}
+      CRAWLLMER_CELERY_RESULT_BACKEND: ${CRAWLLMER_CELERY_RESULT_BACKEND:-db+sqlite:////app/data/celery-results.db}
+    command: ["uv", "run", "uvicorn", "crawllmer.app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
     healthcheck:
@@ -21,22 +40,73 @@ services:
       retries: 5
 
   worker:
-    image: python:3.12-slim
-    working_dir: /app
+    build: .
     volumes:
-      - ./:/app
       - crawllmer-db:/app/data
     environment:
-
-      CRAWLLMER_DB_URL: sqlite:////app/data/crawllmer.db
-      CRAWLLMER_CELERY_BROKER_URL: sqla+sqlite:////app/data/celery-broker.db
-      CRAWLLMER_CELERY_RESULT_BACKEND: db+sqlite:////app/data/celery-results.db
-      CRAWLLMER_WORKER_POLL_SECONDS: "2"
+      CRAWLLMER_STORAGE_BACKEND: ${CRAWLLMER_STORAGE_BACKEND:-sqlite}
+      CRAWLLMER_DB_URL: ${CRAWLLMER_DB_URL:-sqlite:////app/data/crawllmer.db}
+      CRAWLLMER_PG_HOST: ${CRAWLLMER_PG_HOST:-}
+      CRAWLLMER_PG_PORT: ${CRAWLLMER_PG_PORT:-5432}
+      CRAWLLMER_PG_USER: ${CRAWLLMER_PG_USER:-}
+      CRAWLLMER_PG_PASSWORD: ${CRAWLLMER_PG_PASSWORD:-}
+      CRAWLLMER_PG_DATABASE: ${CRAWLLMER_PG_DATABASE:-}
+      CRAWLLMER_CELERY_BROKER_URL: ${CRAWLLMER_CELERY_BROKER_URL:-sqla+sqlite:////app/data/celery-broker.db}
+      CRAWLLMER_CELERY_RESULT_BACKEND: ${CRAWLLMER_CELERY_RESULT_BACKEND:-db+sqlite:////app/data/celery-results.db}
+      CRAWLLMER_WORKER_POLL_SECONDS: ${CRAWLLMER_WORKER_POLL_SECONDS:-2}
     depends_on:
       api:
         condition: service_healthy
-    command: >
-      bash -lc "pip install uv && uv sync && uv run python -m crawllmer.app.indexer"
+    command: ["uv", "run", "python", "-m", "crawllmer.app.indexer"]
+
+  ui:
+    build: .
+    environment:
+      CRAWLLMER_STORAGE_BACKEND: ${CRAWLLMER_STORAGE_BACKEND:-sqlite}
+      CRAWLLMER_DB_URL: ${CRAWLLMER_DB_URL:-sqlite:////app/data/crawllmer.db}
+      CRAWLLMER_PG_HOST: ${CRAWLLMER_PG_HOST:-}
+      CRAWLLMER_PG_PORT: ${CRAWLLMER_PG_PORT:-5432}
+      CRAWLLMER_PG_USER: ${CRAWLLMER_PG_USER:-}
+      CRAWLLMER_PG_PASSWORD: ${CRAWLLMER_PG_PASSWORD:-}
+      CRAWLLMER_PG_DATABASE: ${CRAWLLMER_PG_DATABASE:-}
+      CRAWLLMER_CELERY_BROKER_URL: ${CRAWLLMER_CELERY_BROKER_URL:-sqla+sqlite:////app/data/celery-broker.db}
+      CRAWLLMER_CELERY_RESULT_BACKEND: ${CRAWLLMER_CELERY_RESULT_BACKEND:-db+sqlite:////app/data/celery-results.db}
+    volumes:
+      - crawllmer-db:/app/data
+    command: ["uv", "run", "streamlit", "run", "src/crawllmer/app/web/streamlit_app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    ports:
+      - "8501:8501"
+
+  # ── Infrastructure (profile-gated) ─────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    profiles: [redis, distributed]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: [distributed]
+    environment:
+      POSTGRES_USER: crawllmer
+      POSTGRES_PASSWORD: crawllmer
+      POSTGRES_DB: crawllmer
+    ports:
+      - "5432:5432"
+    volumes:
+      - crawllmer-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crawllmer"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   crawllmer-db:
+  crawllmer-pgdata:

@@ -1,4 +1,4 @@
-.PHONY: sync test test-one lint lint-fix lint-path lint-fix-path format check run-api run-ui run-worker run-dev run-observability clean-db clean stop restart crawl-status inttest inttest-list help
+.PHONY: sync test test-one lint lint-fix lint-path lint-fix-path format check run-api run-ui run-worker run-dev docker-up redis-up distributed-up full-stack-distributed-up clean-db clean stop restart crawl-status inttest inttest-list help
 
 # ─── Setup ───────────────────────────────────────────────────────────────────
 
@@ -46,8 +46,19 @@ run-worker:  ## Start Celery worker (SQLite broker by default)
 run-dev:  ## Start API + UI + worker together (Ctrl-C stops all)
 	bash -lc 'trap "kill 0" EXIT; uv run uvicorn crawllmer.app.api.main:app --host 0.0.0.0 --port 8000 --reload & uv run streamlit run src/crawllmer/app/web/streamlit_app.py --server.address 0.0.0.0 --server.port 8501 & uv run python -m crawllmer.app.indexer & wait'
 
-run-observability:  ## Start full stack with OTEL Collector, Jaeger, Prometheus, Grafana
-	docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build
+# ─── Docker Compose ──────────────────────────────────────────────────────────
+
+docker-up:  ## Docker: SQLite default (api + worker + ui)
+	docker compose up --build
+
+redis-up:  ## Docker: + Redis broker (SQLite DB)
+	docker compose --profile redis --env-file .env.redis up --build
+
+distributed-up:  ## Docker: Postgres + Redis (production-like)
+	docker compose --profile distributed --env-file .env.local-distributed up --build
+
+full-stack-distributed-up:  ## Docker: Postgres + Redis + OTEL/Jaeger/Prometheus/Grafana
+	docker compose --profile distributed --env-file .env.local-distributed -f docker-compose.yml -f docker-compose.otel.yml up --build
 
 # ─── Cleanup ─────────────────────────────────────────────────────────────────
 
@@ -80,4 +91,4 @@ inttest-list:  ## List integration test URLs without submitting
 # ─── Help ────────────────────────────────────────────────────────────────────
 
 help:  ## Show this help message
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
