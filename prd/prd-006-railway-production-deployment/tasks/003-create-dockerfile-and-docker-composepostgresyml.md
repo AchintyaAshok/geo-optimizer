@@ -4,7 +4,7 @@ prd_name: "PRD 006: Railway Production Deployment"
 prd_id: 006
 task_id: 003
 created: 2026-03-19
-state: pending
+state: complete
 ---
 
 # Task 003: Create Dockerfile and docker-compose.postgres.yml
@@ -15,13 +15,14 @@ state: pending
 |-------|-------|
 | PRD | [PRD 006: Railway Production Deployment](../prd.md) |
 | Created | 2026-03-19 |
-| State | pending |
+| State | complete |
 
 ## Changelog
 
 | Date | Change |
 |------|--------|
 | 2026-03-19 | Task created |
+| 2026-03-19 | Completed — commit `9859ace` |
 
 ## Objective
 
@@ -71,3 +72,13 @@ Create a production `Dockerfile` for the app image and a `docker-compose.postgre
 ## Notes
 
 The Dockerfile should be optimized for layer caching — copy dependency files first, install, then copy source.
+
+### Completion Notes
+
+- `Dockerfile` created: `python:3.12-slim` base, installs `uv`, caches deps, copies source, default CMD uvicorn
+- Instead of a separate `docker-compose.postgres.yml`, compose files were consolidated with **profiles** (commit `9859ace`):
+  - Profile `distributed` activates Postgres + Redis: `docker compose --profile distributed up --build`
+  - This was an intentional deviation — profiles are cleaner than overlay files
+- `docker-compose.yml` updated to `build: .` instead of inline image
+- Makefile targets: `make distributed-up` replaces the planned `make run-postgres`
+- All services (`api`, `worker`, `ui`) build from the shared Dockerfile

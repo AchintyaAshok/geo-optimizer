@@ -4,7 +4,7 @@ prd_name: "PRD 006: Railway Production Deployment"
 prd_id: 006
 task_id: 001
 created: 2026-03-19
-state: pending
+state: complete
 ---
 
 # Task 001: Add psycopg2-binary dep and storage backend settings
@@ -15,13 +15,14 @@ state: pending
 |-------|-------|
 | PRD | [PRD 006: Railway Production Deployment](../prd.md) |
 | Created | 2026-03-19 |
-| State | pending |
+| State | complete |
 
 ## Changelog
 
 | Date | Change |
 |------|--------|
 | 2026-03-19 | Task created |
+| 2026-03-19 | Completed — commit `9fa57e9` |
 
 ## Objective
 
@@ -70,4 +71,9 @@ Add `psycopg2-binary` dependency and extend `Settings` in `config.py` with expli
 
 ## Notes
 
-_Any additional context or decisions made during execution._
+- `psycopg2-binary>=2.9.10` added to `pyproject.toml`
+- `Settings` extended with `storage_backend`, `pg_host`, `pg_port`, `pg_user`, `pg_password`, `pg_database`
+- `model_validator(mode="after")` validates all `pg_*` fields when `storage_backend == "pgsql"`, assembles `db_url`
+- `engine_kwargs` property returns `check_same_thread` for sqlite, `pool_pre_ping`/`pool_size` for pgsql
+- `celery_worker_pool` property derives pool type from broker URL (prefork for Redis, solo for SQLite)
+- `.env.example` updated with all new variables

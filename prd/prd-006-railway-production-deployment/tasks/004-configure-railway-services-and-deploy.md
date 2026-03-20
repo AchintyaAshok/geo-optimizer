@@ -4,7 +4,7 @@ prd_name: "PRD 006: Railway Production Deployment"
 prd_id: 006
 task_id: 004
 created: 2026-03-19
-state: pending
+state: in_progress
 ---
 
 # Task 004: Configure Railway services and deploy
@@ -15,13 +15,14 @@ state: pending
 |-------|-------|
 | PRD | [PRD 006: Railway Production Deployment](../prd.md) |
 | Created | 2026-03-19 |
-| State | pending |
+| State | in_progress |
 
 ## Changelog
 
 | Date | Change |
 |------|--------|
 | 2026-03-19 | Task created |
+| 2026-03-19 | Railway project created, services spawned, config-as-code files added |
 
 ## Objective
 
@@ -75,3 +76,48 @@ Create a Railway project with all application services, configure environment va
 ## Notes
 
 Railway uses `$PORT` for dynamic port assignment — start commands should reference it. Redis and Postgres connection details are available as Railway reference variables (e.g., `${{Redis.RAILWAY_PRIVATE_DOMAIN}}`).
+
+### Progress (2026-03-19)
+
+**Done:**
+- Railway project created on `AchintyaAshok/geo-optimizer` GitHub repo
+- 3 app services created (API, Worker, UI) + Redis plugin + PostgreSQL plugin
+- Per-service `railway.toml` config-as-code files created in `railway/api/`, `railway/worker/`, `railway/ui/`
+- Auto-deploy disconnected (branch disconnected from production) — manual deploy only for now
+- Shared variables configured in Railway project settings
+
+**Config-as-code files (`railway/*.toml`):**
+- Each service has its own `railway.toml` with builder, dockerfilePath, startCommand, restartPolicy
+- API service has `healthcheckPath = "/health"` and `healthcheckTimeout = 120`
+- Root Directory left as default (repo root) for all services — config file path set per service in dashboard
+- `dockerfilePath = "Dockerfile"` (relative to repo root)
+
+**Shared variables (set in Railway dashboard → Shared Variables):**
+```
+CRAWLLMER_STORAGE_BACKEND=pgsql
+CRAWLLMER_PG_HOST=${{Postgres.PGHOST}}
+CRAWLLMER_PG_PORT=${{Postgres.PGPORT}}
+CRAWLLMER_PG_USER=${{Postgres.PGUSER}}
+CRAWLLMER_PG_PASSWORD=${{Postgres.PGPASSWORD}}
+CRAWLLMER_PG_DATABASE=${{Postgres.PGDATABASE}}
+CRAWLLMER_CELERY_BROKER_URL=redis://${{Redis.REDIS_PRIVATE_DOMAIN}}:6379/0
+CRAWLLMER_CELERY_RESULT_BACKEND=redis://${{Redis.REDIS_PRIVATE_DOMAIN}}:6379/1
+CRAWLLMER_LOG_LEVEL=INFO
+```
+
+**Railway dashboard settings per service:**
+- Each service: Settings → Config File Path → `railway/api/railway.toml` (or worker/ui)
+- API + UI: Settings → Networking → Generate Domain (public)
+- All services: auto-deploy branch disconnected
+
+**Remaining:**
+- Push config files to GitHub and merge to main
+- Set Config File Path for each service in Railway dashboard
+- Trigger first manual deploy on all 3 services
+- Verify services start, connect to Redis/Postgres, and respond
+
+**Key learnings:**
+- Railway `railway.toml` is per-service build/deploy config only — cannot set env vars or provision databases
+- No Terraform-style infrastructure-as-code — databases and variables are always manual via dashboard
+- For multi-service repos, use separate `railway.toml` files with Config File Path set per service in dashboard
+- Root Directory must stay as repo root so `dockerfilePath = "Dockerfile"` resolves correctly

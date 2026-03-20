@@ -325,3 +325,31 @@ Everything in Low Effort, plus:
 |--------|------|-------|
 | Draft | 2026-03-19 | Initial draft — updated after merging main (pydantic settings, OTEL stack already exist) |
 | Approved | 2026-03-19 | Approved for task breakdown |
+| In Progress | 2026-03-19 | Tasks 001-003 complete, Task 004 in progress (Railway project created, first deploy pending) |
+
+## Task Status
+
+| # | Task | State | Commit |
+|---|------|-------|--------|
+| 001 | Add psycopg2-binary dep and storage backend settings | **complete** | `9fa57e9` |
+| 002 | Refactor storage module with backend-specific subclasses | **complete** | `a362384` |
+| 003 | Create Dockerfile and docker-compose.postgres.yml | **complete** | `9859ace` |
+| 004 | Configure Railway services and deploy | **in_progress** | — |
+| 005 | Wire OTEL collector and Jaeger on Railway | pending | — |
+| 006 | End-to-end verification and smoke test | pending | — |
+
+## Session Notes (2026-03-19)
+
+### Railway Project Setup
+
+- GitHub repo: `AchintyaAshok/geo-optimizer`
+- 5 services: API, Worker, UI (app), Redis + PostgreSQL (plugins)
+- Auto-deploy disabled — manual deploy only until ready
+- Per-service config-as-code in `railway/api/`, `railway/worker/`, `railway/ui/`
+- Shared variables set at project level for Postgres + Redis + log level
+
+### Deviations from Original Plan
+
+1. **Task 003**: Used Docker Compose profiles (`--profile distributed`) instead of separate `docker-compose.postgres.yml` overlay file — cleaner approach
+2. **Task 004**: Per-service `railway.toml` files in `railway/` subdirectories instead of a single root `railway.toml` — allows different start commands and healthcheck configs per service without dashboard overrides
+3. **Task 004**: Railway has no infrastructure-as-code (Terraform-style) — databases, env vars, and service creation are manual via dashboard. `railway.toml` only covers build/deploy settings

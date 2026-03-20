@@ -4,7 +4,7 @@ prd_name: "PRD 006: Railway Production Deployment"
 prd_id: 006
 task_id: 002
 created: 2026-03-19
-state: pending
+state: complete
 ---
 
 # Task 002: Refactor storage module with backend-specific subclasses
@@ -15,13 +15,14 @@ state: pending
 |-------|-------|
 | PRD | [PRD 006: Railway Production Deployment](../prd.md) |
 | Created | 2026-03-19 |
-| State | pending |
+| State | complete |
 
 ## Changelog
 
 | Date | Change |
 |------|--------|
 | 2026-03-19 | Task created |
+| 2026-03-19 | Completed — commit `a362384` |
 
 ## Objective
 
@@ -86,3 +87,13 @@ adapters/storage.py
 ## Notes
 
 The abstract `CrawlRepository` in `domain/ports.py` stays untouched — it's the interface contract. `SqlAlchemyStorageRepository` is the concrete implementation layer that both backend-specific subclasses share.
+
+### Completion Notes
+
+- `SqlAlchemyStorageRepository` base class at line 103 of `storage.py` — all query logic
+- `SqliteStorageRepository` subclass at line 400 — SQLite-specific engine config
+- `PgSqlStorageRepository` subclass at line 412 — Postgres-specific engine config
+- `get_storage(settings)` factory at line 420 — returns correct subclass
+- `app/web/runtime.py` and `app/indexer/app.py` updated to use `get_storage()`
+- `default_repository()` removed
+- All unit + integration tests pass
