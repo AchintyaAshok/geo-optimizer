@@ -12,19 +12,24 @@ Refresh the project documentation (README, guides, docs) to reflect the current 
 ### Step 1: Read the Current State
 
 Read these files to understand what changed:
-- `src/crawllmer/web/app.py` — API endpoints (routes, request/response shapes)
-- `src/crawllmer/application/workers.py` — Pipeline stages (discovery, extraction, scoring, etc.)
-- `src/crawllmer/application/orchestrator.py` — Pipeline orchestration
+- `src/crawllmer/app/api/routes.py` — API endpoints (routes, request/response shapes)
+- `src/crawllmer/app/indexer/workers.py` — Discovery strategies, extraction, scoring, generation
+- `src/crawllmer/app/indexer/spider.py` — BFS spider scan
+- `src/crawllmer/app/indexer/page_indexer.py` — Single-page indexing
+- `src/crawllmer/app/indexer/link_filter.py` — Link extraction and filtering
+- `src/crawllmer/app/indexer/app.py` — Celery app and task definitions
+- `src/crawllmer/app/web/streamlit_app.py` — Streamlit UI
+- `src/crawllmer/app/web/api_client.py` — UI's HTTP client for the API
+- `src/crawllmer/core/orchestrator.py` — Pipeline orchestration
+- `src/crawllmer/core/config.py` — Pydantic Settings (source of truth for all env vars)
 - `src/crawllmer/domain/models.py` — Domain models and enums
 - `src/crawllmer/domain/ports.py` — Abstract interfaces
-- `src/crawllmer/adapters/storage.py` — Persistence layer
-- `src/crawllmer/web/runtime.py` — Configuration and env vars
+- `src/crawllmer/adapters/storage.py` — Persistence layer (SQLite + Postgres)
 - `Makefile` — Build targets
 - `docker-compose.yml` — Docker setup (profiles: redis, distributed)
 - `docker-compose.otel.yml` — Observability overlay
 - `pyproject.toml` — Dependencies
 - `.env.example`, `.env.redis`, `.env.local-distributed` — Environment configs
-- `src/crawllmer/core/config.py` — Pydantic Settings (source of truth for all env vars)
 
 ### Step 2: Diff Against Docs
 
@@ -36,7 +41,20 @@ For each doc file, check:
 - Are the pipeline stages accurate? Any new stages or changed logic?
 - Are dependency versions / badges correct?
 
-### Step 3: Update Only What Changed
+### Step 3: Verify Architecture Diagrams
+
+**This step is critical — diagrams go stale silently.**
+
+For every ASCII diagram in README.md and docs/architecture.md:
+
+1. **List the actual top-level packages**: `ls src/crawllmer/` and `ls src/crawllmer/app/`
+2. **Compare against diagram labels**: Does the diagram show the same packages, modules, and relationships?
+3. **Check data flow arrows**: Does the UI connect to the API (not directly to the DB)? Does the worker connect to the broker? Are the arrows accurate?
+4. **Check module lists in source trees**: Run `find src/crawllmer -name '*.py' | sort` and compare against any source tree listings in docs.
+
+The README should have a **high-level** architecture diagram (boxes + arrows, no module details). Detailed architecture diagrams, process flow diagrams, and module-level breakdowns belong in `docs/architecture.md`.
+
+### Step 4: Update Only What Changed
 
 Do NOT rewrite docs that are already correct. Edit surgically — update the specific sections that are stale.
 
@@ -51,11 +69,16 @@ Do NOT rewrite docs that are already correct. Edit surgically — update the spe
 6. **Running the Server** — Local, Docker, Docker+Redis. Just the commands.
 7. **API Reference** — Table of endpoints. One row per endpoint, no prose.
 8. **Configuration** — Env var table. One row per variable.
-9. **Architecture** — ASCII diagram + source tree. Link to full docs.
+9. **Architecture** — High-level ASCII diagram + source tree. Link to `docs/architecture.md` for full diagrams.
 10. **Design Decisions** — 1–2 sentence summaries. Link to full doc.
 11. **Testing** — `make test`, single-test example, test directory tree
 12. **Development** — Makefile targets, code style notes
 13. **Guides & Docs tables** — Link indexes to guides/ and docs/
+
+### Architecture in README vs docs/
+
+- **README**: High-level box diagram showing the three applications (API, UI, Indexer), shared core, and external services (DB, Redis). No module names, no file paths — just the conceptual architecture.
+- **docs/architecture.md**: Full detail — module responsibilities, data model, runtime topology, process flow diagrams, dependency flow, source tree with every file.
 
 ### What Makes a Good README Section
 
@@ -100,6 +123,7 @@ Feature-focused. Written for someone running or integrating with crawllmer.
 | `api.md` | Every API endpoint with request/response examples and a workflow script |
 | `deployment.md` | Local, Docker, distributed setup with profile reference |
 | `environment.md` | All env vars, storage backends, Docker Compose profiles, OTEL |
+| `llms-txt-generation.md` | Output format, section grouping, caveats, and known limitations |
 
 **Add a new guide when**: A README section keeps growing beyond a table + 2–3 sentences. Extract it into a guide and replace the README content with a summary + link.
 
@@ -111,8 +135,9 @@ Architecture and decision-focused. Written for someone understanding or modifyin
 
 | File | Covers |
 |------|--------|
-| `architecture.md` | Layers, module responsibilities, data model, runtime topology, dependency flow |
+| `architecture.md` | Layers, module responsibilities, data model, runtime topology, process flow diagrams, dependency flow |
 | `design_decisions.md` | Key technical decisions with rationale and trade-offs |
+| `integration-test-plan.md` | Test matrix with sites across 3 categories |
 | `project_requirements.md` | Original assignment spec (do not modify) |
 
 **Add a new doc when**: You're documenting WHY something is built a certain way, not HOW to use it. Architecture diagrams, data model changes, protocol decisions → docs. Deployment steps, API examples, config guides → guides.
