@@ -51,6 +51,9 @@ run-dev:  ## Start API + UI + worker together (Ctrl-C stops all)
 docker-up:  ## Docker: SQLite default (api + worker + ui)
 	docker compose up --build
 
+docker-up-production-like: ## Spins up an entire stack (apps + infra + otel) with distributed datastores for app + tasks.
+	docker compose --profile distributed --env-file .env.local-distributed -f docker-compose.yml -f docker-compose.otel.yml up --build
+
 redis-up:  ## Docker: + Redis broker (SQLite DB)
 	docker compose --profile redis --env-file .env.redis up --build
 
