@@ -26,12 +26,15 @@ class Settings(BaseSettings):
     # ── Storage backend ────────────────────────────────────────────────
     storage_backend: Literal["sqlite", "pgsql"] = "sqlite"
 
-    # ── SQLite (default) ───────────────────────────────────────────────
-    db_url: str = "sqlite:///./crawllmer.db"
+    # ── Database URL ────────────────────────────────────────────────────
+    # Set explicitly for sqlite:// or postgresql:// connection strings.
+    # When storage_backend=sqlite and unset, defaults to sqlite:///./crawllmer.db
+    # When storage_backend=pgsql, built from PG_* fields or set directly.
+    db_url: str | None = None
 
     # ── PostgreSQL (required when storage_backend == "pgsql") ──────────
     pg_host: str | None = None
-    pg_port: int = 5432
+    pg_port: int | None = 5432
     pg_user: str | None = None
     pg_password: str | None = None
     pg_database: str | None = None
@@ -59,19 +62,34 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_storage_config(self) -> Settings:
-        """Ensure Postgres credentials are provided when pgsql is selected."""
-        if self.storage_backend == "pgsql":
-            required = ("pg_host", "pg_user", "pg_password", "pg_database")
-            missing = [f for f in required if getattr(self, f) is None]
-            if missing:
-                env_names = [f"CRAWLLMER_{f.upper()}" for f in missing]
-                raise ValueError(
-                    f"storage_backend='pgsql' requires: {', '.join(env_names)}"
+        """Build or validate db_url based on storage_backend.
+
+        sqlite: defaults to sqlite:///./crawllmer.db if db_url not set.
+        pgsql:  prefers PG_* fields → builds URL from parts.
+                falls back to db_url if it starts with postgresql://.
+                raises if neither is available.
+        """
+        if self.storage_backend == "sqlite":
+            if self.db_url is None:
+                self.db_url = "sqlite:///./crawllmer.db"
+        elif self.storage_backend == "pgsql":
+            pg_fields = ("pg_host", "pg_user", "pg_password", "pg_database")
+            has_parts = all(getattr(self, f) is not None for f in pg_fields)
+
+            if has_parts:
+                port = self.pg_port or 5432
+                self.db_url = (
+                    f"postgresql://{self.pg_user}:{self.pg_password}"
+                    f"@{self.pg_host}:{port}/{self.pg_database}"
                 )
-            self.db_url = (
-                f"postgresql://{self.pg_user}:{self.pg_password}"
-                f"@{self.pg_host}:{self.pg_port}/{self.pg_database}"
-            )
+            elif self.db_url and self.db_url.startswith("postgresql://"):
+                pass
+            else:
+                raise ValueError(
+                    "storage_backend='pgsql' requires either "
+                    "CRAWLLMER_PG_HOST/USER/PASSWORD/DATABASE or "
+                    "CRAWLLMER_DB_URL=postgresql://..."
+                )
         return self
 
     @property

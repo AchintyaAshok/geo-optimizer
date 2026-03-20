@@ -27,13 +27,32 @@ class TestPgsqlBackend:
             Settings(storage_backend="pgsql")
 
     def test_pgsql_missing_partial_credentials(self) -> None:
-        with pytest.raises(ValidationError, match="CRAWLLMER_PG_PASSWORD"):
+        with pytest.raises(ValidationError, match="requires either"):
             Settings(
                 storage_backend="pgsql",
                 pg_host="localhost",
                 pg_user="user",
                 pg_database="db",
             )
+
+    def test_pgsql_accepts_db_url_directly(self) -> None:
+        s = Settings(
+            storage_backend="pgsql",
+            db_url="postgresql://u:p@host:5432/db",
+        )
+        assert s.db_url == "postgresql://u:p@host:5432/db"
+
+    def test_pgsql_parts_override_db_url(self) -> None:
+        s = Settings(
+            storage_backend="pgsql",
+            db_url="postgresql://old:old@old:5432/old",
+            pg_host="new",
+            pg_user="u",
+            pg_password="p",
+            pg_database="d",
+        )
+        assert "new" in s.db_url
+        assert "old" not in s.db_url
 
     def test_pgsql_assembles_db_url(self) -> None:
         s = Settings(
