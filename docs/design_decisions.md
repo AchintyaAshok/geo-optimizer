@@ -148,3 +148,31 @@ Each error class has an explicit `__init__` that stores structured attributes an
 **Why it's safe**: Our pipeline stages are idempotent — they use upserts, not inserts. Re-executing a partially completed run overwrites previous results and fills in gaps. The only side effect is duplicate event records (append-only audit trail), which is harmless.
 
 **Trade-off**: Tasks can be executed more than once on worker failure. This is acceptable because of the idempotent design. The `visibility_timeout` (default 1 hour for Redis) must be longer than the longest expected crawl to avoid premature redelivery.
+
+## UI as API Client
+
+The Streamlit UI delegates all data operations to the REST API via an HTTP client (`api_client.py`) — no direct database or broker access. In production the UI service needs only `CRAWLLMER_API_BASE_URL`. This makes deployment simpler and keeps the API as the single gateway to the backend. The trade-off is ~1-5ms latency per request, negligible on the same network.
+
+## Module Organisation: `app/{api, web, indexer}`
+
+Three application runtimes live as sibling packages under `app/`, with shared business logic in `core/` and persistence in `adapters/`. The original `application/` grab-bag (orchestrator + queueing + workers + scheduling) was eliminated — orchestration logic moved to `core/`, Celery infrastructure to `app/indexer/`. Each `app/*` package maps to an independently deployable service.
+
+## Pluggable Storage Backend
+
+A `CRAWLLMER_STORAGE_BACKEND` Literal enum (`sqlite` | `pgsql`) selects the backend at startup. Backend-specific repository subclasses (`SqliteStorageRepository`, `PgSqlStorageRepository`) configure their own engine kwargs — `check_same_thread=False` for SQLite, `pool_pre_ping=True` + `pool_size=5` for Postgres. A `get_storage()` factory function instantiates the right one. Postgres credentials can be provided as individual `PG_*` env vars or a single `DATABASE_URL`.
+
+## Two-Phase Spider with In-Link Ranking
+
+The fallback spider (tier 4 discovery) runs in two phases: Phase 1 BFS-scans the site to build a link graph and rank pages by in-link count (PageRank intuition); Phase 2 indexes the top-N pages via the task queue. BFS over DFS because we want breadth — top-level pages (`/docs`, `/blog`, `/api`) matter more than deeply nested sub-pages. Bounds are config-driven: `max_depth=3`, `max_scan_pages=100`, `max_index_pages=50`.
+
+## Extension Allowlist Filtering
+
+The spider only indexes pages with extensions in a configurable allowlist (`.html`, `.htm`, `.txt`, `.md`, and extensionless paths). Assets (`.css`, `.js`, `.png`, `.pdf`) are skipped. An allowlist is safer than a blocklist — we only index what we know is content. Extensionless paths are included because modern frameworks serve HTML at clean URLs.
+
+## Pipeline Event Auditability
+
+Every spider and extraction decision is recorded as a `CrawlEvent` — which pages were scanned, which links were followed or skipped and why, which pages returned errors. The existing `GET /api/v1/crawls/{id}/events` endpoint serves the full audit trail. Large crawls produce 1000+ events; the UI shows the last 8 as a live log with a collapsible dataframe for the full set.
+
+## Single Dockerfile, Multiple Services
+
+One `Dockerfile` builds all three services (API, UI, Worker). The entrypoint is overridden per service via Docker Compose `command` or Railway `railway.toml`. All services share the same codebase and dependencies, ensuring identical code at deploy time with no drift risk.

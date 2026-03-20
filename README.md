@@ -209,19 +209,18 @@ Full architecture documentation: **[docs/architecture.md](docs/architecture.md)*
 
 ## Design Decisions
 
-- **Hexagonal architecture** — Domain and application logic have zero imports from web or storage layers. Adapters implement abstract ports, so you can swap SQLite for Postgres or Celery for any queue without touching business logic.
+- **Hexagonal architecture** — Domain logic has zero imports from web or storage layers. Swap SQLite for Postgres or Celery for any queue without touching business logic.
+- **Hierarchical discovery** — `/llms.txt` → `robots.txt` → `sitemap.xml` → BFS spider crawl. Respects existing llms.txt files, falls back gracefully.
+- **Two-phase spider** — BFS scan builds a link graph, ranks pages by in-link count, then indexes the top-N. Breadth over depth.
+- **Confidence-scored extraction** — `<title>` gets 1.0, Open Graph 0.8, JSON-LD 0.6. Highest-confidence entry wins during dedup.
+- **UI as API client** — Streamlit delegates all operations through the REST API. No direct DB or broker access.
+- **Pluggable storage** — `sqlite` or `pgsql` via a single config switch. Backend-specific engine tuning via repository subclasses.
+- **Pipeline event auditability** — Every spider scan, page extraction, and error is recorded as a `CrawlEvent` visible via the events API.
+- **Task reliability** — `acks_late` + `reject_on_worker_lost` ensures crashed workers don't lose tasks. Idempotent pipeline makes redelivery safe.
+- **Single Dockerfile** — One image for all three services. Entrypoint overridden per service via Compose or Railway config.
+- **Deterministic output** — Entries sorted by URL, grouped by top-level path into H2 sections per the llmstxt.org spec.
 
-- **Hierarchical discovery** — Instead of blindly crawling, we check `/llms.txt` first (the source of truth), then `robots.txt` hints, then `sitemap.xml`, and only fall back to the seed URL. This respects existing llms.txt files and produces better results.
-
-- **Confidence-scored extraction** — Every metadata extraction (title, description) carries a confidence score based on its source. `<title>` tags get 1.0, Open Graph gets 0.8, JSON-LD gets 0.6. During deduplication, the highest-confidence entry wins.
-
-- **Deterministic output** — `llms.txt` entries are sorted by URL, making output reproducible and diffable.
-
-- **SQLite everywhere** — SQLite serves as the app database, Celery broker, and result backend. Zero external dependencies for local dev. Redis is available as a compose extension for production.
-
-- **Work-item state machine** — Every pipeline stage is tracked as a work item with `queued → processing → completed/failed` transitions and an event audit trail.
-
-More on architecture and design: **[docs/architecture.md](docs/architecture.md)** and **[docs/design_decisions.md](docs/design_decisions.md)**
+Full rationale and trade-offs: **[docs/design_decisions.md](docs/design_decisions.md)**
 
 ## Testing
 
