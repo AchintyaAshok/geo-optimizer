@@ -81,8 +81,23 @@ The default configuration uses SQLite for everything — no external services re
 make docker-up                    # SQLite default (api + worker + ui)
 make redis-up                     # + Redis broker
 make distributed-up               # + Postgres + Redis (production-like)
-make otel-up    # + OTEL/Jaeger/Prometheus/Grafana
+make otel-up                      # + OTEL/Jaeger/Prometheus/Grafana
 ```
+
+### Full stack (`make otel-up`)
+
+Runs all application and observability services:
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| API | [http://localhost:8000](http://localhost:8000) | REST API + Swagger docs at `/docs` |
+| Streamlit UI | [http://localhost:8501](http://localhost:8501) | Web interface |
+| Jaeger | [http://localhost:16686](http://localhost:16686) | Distributed trace viewer |
+| Prometheus | [http://localhost:9090](http://localhost:9090) | Metrics dashboard |
+| Grafana | [http://localhost:3000](http://localhost:3000) | Dashboards (anonymous admin, no login) |
+| OTEL Collector | localhost:4317 (gRPC) | Receives telemetry from API + worker |
+| Postgres | localhost:5432 | Application database |
+| Redis | localhost:6379 | Celery broker + result backend |
 
 Full deployment guide: **[guides/deployment.md](guides/deployment.md)**
 
