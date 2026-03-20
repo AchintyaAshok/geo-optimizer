@@ -50,7 +50,9 @@ class Settings(BaseSettings):
     worker_poll_seconds: int = 2
     celery_worker_concurrency: int = 4
 
-    # ── UI ─────────────────────────────────────────────────────────────
+    # ── UI ──────────────────────────────────────────────────────────────
+    api_base_url: str = "http://localhost:8000"
+
     ui_refresh_seconds: int = 2
 
     # ── Spider (fallback crawler) ──────────────────────────────────────

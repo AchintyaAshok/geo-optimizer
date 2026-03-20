@@ -8,9 +8,20 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, HttpUrl
 
-from crawllmer.app.web.runtime import pipeline, repo
+from crawllmer.adapters.storage import get_storage
+from crawllmer.app.indexer.queueing import CeleryQueuePublisher
 from crawllmer.core import InvalidInputError, PipelineProcessingError, RunNotFoundError
+from crawllmer.core.config import get_settings
 from crawllmer.core.observability import log_event, setup_telemetry
+from crawllmer.core.orchestrator import CrawlPipeline
+
+_settings = get_settings()
+repo = get_storage()
+queue = CeleryQueuePublisher(
+    broker_url=_settings.celery_broker_url,
+    result_backend=_settings.celery_result_backend,
+)
+pipeline = CrawlPipeline(repository=repo, queue=queue)
 
 
 @asynccontextmanager
@@ -72,9 +83,11 @@ def crawl_status(run_id: UUID):
         raise HTTPException(status_code=404, detail="run not found")
     return {
         "run_id": str(run.id),
+        "host": run.hostname,
         "status": run.status,
         "score": run.score,
         "score_breakdown": run.score_breakdown,
+        "created_at": run.created_at.isoformat(),
     }
 
 
@@ -84,6 +97,28 @@ def crawl_llms_txt(run_id: UUID):
     if artifact is None:
         raise HTTPException(status_code=404, detail="llms.txt not found")
     return artifact.llms_txt
+
+
+@app.get("/api/v1/crawls/{run_id}/work-items")
+def crawl_work_items(run_id: UUID):
+    run = repo.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    items = repo.list_work_items(run_id)
+    return [
+        {
+            "id": str(item.id),
+            "run_id": str(item.run_id),
+            "stage": item.stage.value,
+            "state": item.state.value,
+            "url": item.url,
+            "attempt_count": item.attempt_count,
+            "last_error": item.last_error,
+            "created_at": item.created_at.isoformat(),
+            "updated_at": item.updated_at.isoformat(),
+        }
+        for item in items
+    ]
 
 
 @app.get("/api/v1/crawls/{run_id}/events")
@@ -110,8 +145,8 @@ def crawl_events(run_id: UUID):
 
 
 @app.get("/api/v1/history")
-def history(host: str | None = None):
-    runs = repo.list_runs(hostname=host, limit=50)
+def history(host: str | None = None, limit: int = 50):
+    runs = repo.list_runs(hostname=host, limit=limit)
     return [
         {
             "run_id": str(run.id),

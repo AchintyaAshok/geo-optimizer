@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from datetime import UTC, datetime
 
+import httpx
 import streamlit as st
 
-from crawllmer.app.web.runtime import pipeline, repo
-from crawllmer.core import InvalidInputError
+from crawllmer.app.web.runtime import client
 from crawllmer.core.config import get_settings
-from crawllmer.domain.models import (
-    CrawlEvent,
-    CrawlRun,
-    RunStatus,
-    WorkItem,
-    WorkItemState,
-    WorkStage,
-)
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -23,13 +14,13 @@ from crawllmer.domain.models import (
 
 st.set_page_config(page_title="crawllmer", layout="wide")
 
-STAGES = list(WorkStage)
+STAGES = ["discovery", "extraction", "canonicalization", "scoring", "generation"]
 STAGE_LABELS = {
-    WorkStage.discovery: "Discovery",
-    WorkStage.extraction: "Extraction",
-    WorkStage.canonicalization: "Canonicalize",
-    WorkStage.scoring: "Scoring",
-    WorkStage.generation: "Generation",
+    "discovery": "Discovery",
+    "extraction": "Extraction",
+    "canonicalization": "Canonicalize",
+    "scoring": "Scoring",
+    "generation": "Generation",
 }
 
 MAX_PREVIEW_LINES = 1000
@@ -68,7 +59,6 @@ st.markdown(
         font-size: 1.1rem; color: inherit; line-height: 1;
     }
     .navbar-menu-btn:hover { background: rgba(128,128,128,.1); }
-    /* hamburger dropdown */
     .menu-dropdown {
         position: relative; display: inline-block;
     }
@@ -206,7 +196,7 @@ st.markdown(
 )
 
 # ---------------------------------------------------------------------------
-# Session state — only UI selection, no run tracking
+# Session state
 # ---------------------------------------------------------------------------
 
 if "selected_run" not in st.session_state:
@@ -217,11 +207,12 @@ RECENT_HOURS = 24
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers (work with dicts from the API)
 # ---------------------------------------------------------------------------
 
 
-def _elapsed(start: datetime) -> str:
+def _elapsed(iso_str: str) -> str:
+    start = datetime.fromisoformat(iso_str)
     now = datetime.now(UTC)
     if start.tzinfo is None:
         start = start.replace(tzinfo=UTC)
@@ -233,43 +224,44 @@ def _elapsed(start: datetime) -> str:
     return f"{secs // 3600}h {(secs % 3600) // 60}m"
 
 
-def _duration(item: WorkItem) -> str:
-    ms = int((item.updated_at - item.created_at).total_seconds() * 1000)
+def _item_duration(item: dict) -> str:
+    start = datetime.fromisoformat(item["created_at"])
+    end = datetime.fromisoformat(item["updated_at"])
+    ms = int((end - start).total_seconds() * 1000)
     if ms < 1000:
         return f"{ms}ms"
     return f"{ms / 1000:.1f}s"
 
 
-def _stage_state(stage: WorkStage, items: list[WorkItem]) -> str:
-    stage_items = [i for i in items if i.stage == stage]
+def _stage_state(stage: str, items: list[dict]) -> str:
+    stage_items = [i for i in items if i["stage"] == stage]
     if not stage_items:
         return "pending"
-    states = {i.state for i in stage_items}
-    if WorkItemState.failed in states:
+    states = {i["state"] for i in stage_items}
+    if "failed" in states:
         return "failed"
-    if WorkItemState.processing in states:
+    if "processing" in states:
         return "active"
-    if WorkItemState.completed in states:
+    if "completed" in states:
         return "done"
     return "pending"
 
 
-def _current_stage_label(items: list[WorkItem]) -> str:
-    """Short label for the current/latest stage."""
+def _current_stage_label(items: list[dict]) -> str:
     for stage in reversed(STAGES):
         state = _stage_state(stage, items)
         if state in ("active", "done", "failed"):
-            icon = {"active": "▶", "done": "✓", "failed": "✗"}[state]
+            icon = {"active": "\u25b6", "done": "\u2713", "failed": "\u2717"}[state]
             return f"{icon} {STAGE_LABELS[stage]}"
     return "queued"
 
 
 # ---------------------------------------------------------------------------
-# Rendering: stage bar, timeline, detail panel
+# Rendering
 # ---------------------------------------------------------------------------
 
 
-def _render_stage_bar(items: list[WorkItem]) -> None:
+def _render_stage_bar(items: list[dict]) -> None:
     pills: list[str] = []
     for stage in STAGES:
         state = _stage_state(stage, items)
@@ -291,12 +283,19 @@ def _render_stage_bar(items: list[WorkItem]) -> None:
     st.markdown(" ".join(pills), unsafe_allow_html=True)
 
 
-def _render_timeline(items: list[WorkItem]) -> None:
-    seen: dict[WorkStage, WorkItem] = {}
+def _render_timeline(items: list[dict]) -> None:
+    seen: dict[str, dict] = {}
     for item in items:
-        existing = seen.get(item.stage)
-        if existing is None or item.state != WorkItemState.queued:
-            seen[item.stage] = item
+        existing = seen.get(item["stage"])
+        if existing is None or item["state"] != "queued":
+            seen[item["stage"]] = item
+
+    icon_map = {
+        "completed": "&#10003;",
+        "failed": "&#10007;",
+        "processing": "&#9654;",
+        "queued": "&#9675;",
+    }
 
     for stage in STAGES:
         item = seen.get(stage)
@@ -310,16 +309,12 @@ def _render_timeline(items: list[WorkItem]) -> None:
             )
             continue
 
-        icon_map = {
-            WorkItemState.completed: "&#10003;",
-            WorkItemState.failed: "&#10007;",
-            WorkItemState.processing: "&#9654;",
-            WorkItemState.queued: "&#9675;",
-        }
-        icon = icon_map.get(item.state, "&#9675;")
-        dur = _duration(item)
+        icon = icon_map.get(item["state"], "&#9675;")
+        dur = _item_duration(item)
         err = (
-            f'<span class="tl-err">{item.last_error}</span>' if item.last_error else ""
+            f'<span class="tl-err">{item["last_error"]}</span>'
+            if item.get("last_error")
+            else ""
         )
         st.markdown(
             '<div class="tl-row">'
@@ -333,20 +328,19 @@ def _render_timeline(items: list[WorkItem]) -> None:
 RECENT_EVENT_COUNT = 8
 
 
-def _event_row_html(ev: CrawlEvent) -> str:
-    """Build one HTML row for a crawl event."""
-    ts = ev.started_at
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=UTC)
-    time_str = ts.strftime("%H:%M:%S")
+def _event_row_html(ev: dict) -> str:
+    started = ev.get("started_at", "")
+    time_str = started[11:19] if len(started) >= 19 else "--"
 
     dur_str = ""
-    if ev.duration is not None:
-        ms = int(ev.duration * 1000)
+    dur = ev.get("duration")
+    if dur is not None:
+        ms = int(dur * 1000)
         dur_str = f"{ms}ms" if ms < 1000 else f"{ms / 1000:.1f}s"
 
-    meta_parts: list[str] = []
-    for k, v in ev.metadata.items():
+    meta = ev.get("metadata", {})
+    meta_parts = []
+    for k, v in meta.items():
         val = str(v)
         if len(val) > 60:
             val = val[:57] + "..."
@@ -356,16 +350,15 @@ def _event_row_html(ev: CrawlEvent) -> str:
     return (
         '<div class="ev-row">'
         f'<span class="ev-time">{time_str}</span>'
-        f'<span class="ev-name">{ev.name}</span>'
-        f'<span class="ev-sys">{ev.system}</span>'
+        f'<span class="ev-name">{ev.get("name", "")}</span>'
+        f'<span class="ev-sys">{ev.get("system", "")}</span>'
         f'<span class="ev-dur">{dur_str}</span>'
         f'<span class="ev-meta">{meta_str}</span>'
         "</div>"
     )
 
 
-def _render_events(events: list[CrawlEvent], *, is_active: bool) -> None:
-    """Render recent events as styled log + full list in a dataframe."""
+def _render_events(events: list[dict], *, is_active: bool) -> None:
     if not events:
         if is_active:
             st.caption("Waiting for events...")
@@ -379,34 +372,27 @@ def _render_events(events: list[CrawlEvent], *, is_active: bool) -> None:
         unsafe_allow_html=True,
     )
 
-    # Recent events as styled monospace log (most recent first)
     recent = list(reversed(events[-RECENT_EVENT_COUNT:]))
     st.markdown(
         "\n".join(_event_row_html(ev) for ev in recent),
         unsafe_allow_html=True,
     )
 
-    # Full event table in a collapsed expander (if more than shown)
     if len(events) > RECENT_EVENT_COUNT:
         with st.expander(f"All {len(events)} events"):
             table_rows = []
             for ev in reversed(events):
-                ts = ev.started_at
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=UTC)
-                dur = None
-                if ev.duration is not None:
-                    dur = round(ev.duration * 1000)
-
-                meta_str = ", ".join(
-                    f"{k}={str(v)[:80]}" for k, v in ev.metadata.items()
-                )
+                started = ev.get("started_at", "")
+                dur = ev.get("duration")
+                dur_ms = round(dur * 1000) if dur else None
+                meta = ev.get("metadata", {})
+                meta_str = ", ".join(f"{k}={str(v)[:80]}" for k, v in meta.items())
                 table_rows.append(
                     {
-                        "Time": ts.strftime("%H:%M:%S"),
-                        "Event": ev.name,
-                        "System": ev.system,
-                        "Duration (ms)": dur,
+                        "Time": started[11:19] if len(started) >= 19 else "",
+                        "Event": ev.get("name", ""),
+                        "System": ev.get("system", ""),
+                        "Duration (ms)": dur_ms,
                         "Details": meta_str,
                     }
                 )
@@ -418,12 +404,11 @@ def _render_events(events: list[CrawlEvent], *, is_active: bool) -> None:
 
 
 def _render_llms_txt(artifact_text: str, run_id_str: str) -> None:
-    """Render llms.txt with stats, truncation for large files."""
     lines = artifact_text.splitlines()
     line_count = len(lines)
     word_count = len(artifact_text.split())
 
-    st.caption(f"{line_count} lines · {word_count:,} words")
+    st.caption(f"{line_count} lines \u00b7 {word_count:,} words")
 
     truncated = line_count > MAX_PREVIEW_LINES
     preview = "\n".join(lines[:MAX_PREVIEW_LINES]) if truncated else artifact_text
@@ -449,40 +434,43 @@ def _render_llms_txt(artifact_text: str, run_id_str: str) -> None:
 
 
 def _render_detail_panel(run_id_str: str) -> None:
-    """Render the full detail view for a selected run."""
-    run = repo.get_run(UUID(run_id_str))
+    run = client.get_run(run_id_str)
     if run is None:
         st.warning("Run not found.")
         return
 
-    items = repo.list_work_items(UUID(run_id_str))
-    status_class = f"badge-{run.status.value}"
+    items = client.get_work_items(run_id_str)
+    status = run.get("status", "unknown")
+    status_class = f"badge-{status}"
 
     # Header
+    host = run.get("host", run.get("run_id", "?"))
     st.markdown(
-        f'<div class="detail-header">{run.hostname}</div>',
+        f'<div class="detail-header">{host}</div>',
         unsafe_allow_html=True,
     )
     col_badge, col_time = st.columns([1, 3])
     with col_badge:
         st.markdown(
-            f'<span class="badge {status_class}">{run.status.value}</span>',
+            f'<span class="badge {status_class}">{status}</span>',
             unsafe_allow_html=True,
         )
     with col_time:
-        st.caption(f"Started {_elapsed(run.created_at)} ago")
+        created = run.get("created_at")
+        if created:
+            st.caption(f"Started {_elapsed(created)} ago")
 
     # Stage bar
     _render_stage_bar(items)
 
     # Score metrics (completed only)
-    if run.status == RunStatus.completed:
+    if status == "completed":
         st.markdown("---")
         mcols = st.columns(4)
-        bd = run.score_breakdown or {}
+        bd = run.get("score_breakdown") or {}
         mcols[0].metric(
             "Overall",
-            f"{(run.score or 0):.1%}",
+            f"{(run.get('score') or 0):.1%}",
             help="Weighted: 40% coverage + 40% confidence + 20% redundancy",
         )
         mcols[1].metric(
@@ -512,15 +500,15 @@ def _render_detail_panel(run_id_str: str) -> None:
         )
 
     # Error (failed only)
-    if run.status == RunStatus.failed:
-        st.error("Crawl failed: " + run.notes.get("processing_error", "unknown error"))
+    if status == "failed":
+        st.error("Crawl failed")
 
     # llms.txt
-    if run.status == RunStatus.completed:
-        artifact = repo.get_artifact(UUID(run_id_str))
-        if artifact:
+    if status == "completed":
+        llms_txt = client.get_llms_txt(run_id_str)
+        if llms_txt:
             st.markdown("---")
-            _render_llms_txt(artifact.llms_txt, run_id_str)
+            _render_llms_txt(llms_txt, run_id_str)
 
     # Timeline
     st.markdown("---")
@@ -528,8 +516,8 @@ def _render_detail_panel(run_id_str: str) -> None:
     _render_timeline(items)
 
     # Events
-    is_active = run.status in (RunStatus.queued, RunStatus.running)
-    events = repo.list_events(UUID(run_id_str))
+    is_active = status in ("queued", "running")
+    events = client.get_events(run_id_str)
     if events or is_active:
         st.markdown("---")
         _render_events(events, is_active=is_active)
@@ -540,29 +528,25 @@ def _render_detail_panel(run_id_str: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _fetch_runs() -> tuple[list[CrawlRun], list[CrawlRun], list[CrawlRun], bool]:
-    """Query all runs and classify into active / recent / history."""
-    all_runs = repo.list_runs(limit=50)
-    now = datetime.now(UTC)
-    recent_cutoff = now - timedelta(hours=RECENT_HOURS)
+def _fetch_runs() -> tuple[list[dict], list[dict], list[dict], bool]:
+    """Query all runs via API and classify into active / recent / history."""
+    try:
+        all_runs = client.list_runs(limit=50)
+    except httpx.HTTPError:
+        st.error("Could not reach API. Is the server running?")
+        return [], [], [], False
 
-    active: list[CrawlRun] = []
-    recent: list[CrawlRun] = []
-    history: list[CrawlRun] = []
+    active: list[dict] = []
+    history: list[dict] = []
 
     for run in all_runs:
-        if run.status in (RunStatus.queued, RunStatus.running):
+        status = run.get("status", "")
+        if status in ("queued", "running"):
             active.append(run)
         else:
-            created = run.created_at
-            if created.tzinfo is None:
-                created = created.replace(tzinfo=UTC)
-            if created >= recent_cutoff:
-                recent.append(run)
-            else:
-                history.append(run)
+            history.append(run)
 
-    return active, recent, history, len(active) > 0
+    return active, [], history, len(active) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -589,45 +573,45 @@ with col_list:
             st.error("Please provide a URL.")
         else:
             try:
-                new_run = pipeline.enqueue_run(url)
-                st.session_state.selected_run = str(new_run.id)
+                result = client.enqueue_crawl(url)
+                st.session_state.selected_run = result["run_id"]
                 st.rerun()
-            except InvalidInputError as exc:
-                st.error(f"Invalid URL: {exc}")
+            except httpx.HTTPStatusError as exc:
+                st.error(f"Error: {exc.response.text}")
+            except httpx.HTTPError as exc:
+                st.error(f"Could not reach API: {exc}")
 
     # --- Run list helper ---
     def _run_button(
-        run: CrawlRun, *, key_prefix: str, items: list[WorkItem] | None = None
+        run: dict, *, key_prefix: str, items: list[dict] | None = None
     ) -> None:
-        """Render a compact selectable row for a run."""
-        is_selected = st.session_state.selected_run == str(run.id)
+        run_id = run["run_id"]
+        is_selected = st.session_state.selected_run == run_id
 
-        # Build label
-        score_str = ""
-        if run.score is not None:
-            score_str = f"  {run.score:.0%}"
+        score = run.get("score")
+        score_str = f"  {score:.0%}" if score is not None else ""
         stage_str = ""
         if items:
             stage_str = f"  {_current_stage_label(items)}"
 
+        status = run.get("status", "")
         status_icons = {
-            "completed": "✓",
-            "failed": "✗",
-            "running": "▶",
-            "queued": "○",
+            "completed": "\u2713",
+            "failed": "\u2717",
+            "running": "\u25b6",
+            "queued": "\u25cb",
         }
-        icon = status_icons.get(run.status.value, "○")
-        label = f"{icon}  {run.hostname}{score_str}{stage_str}"
-        elapsed = _elapsed(run.created_at)
+        icon = status_icons.get(status, "\u25cb")
+        host = run.get("host", "?")
+        label = f"{icon}  {host}{score_str}{stage_str}"
 
         if st.button(
             label,
-            key=f"{key_prefix}-{run.id}",
+            key=f"{key_prefix}-{run_id}",
             use_container_width=True,
             type="primary" if is_selected else "secondary",
-            help=f"{elapsed} ago",
         ):
-            st.session_state.selected_run = str(run.id)
+            st.session_state.selected_run = run_id
             st.rerun()
 
     # ---- Auto-refreshing run list fragment ----
@@ -635,19 +619,19 @@ with col_list:
     def _run_list_fragment() -> None:
         active_runs, recent_runs, history_runs, has_active = _fetch_runs()
 
-        # Refresh indicator + manual refresh button
+        # Refresh indicator
         updated_at = datetime.now(UTC).strftime("%H:%M:%S")
         dot_cls = "refresh-dot" if has_active else "refresh-dot refresh-dot-idle"
         label = "Auto-refreshing" if has_active else "Up to date"
-        ind_col, btn_col = st.columns([3, 1])
+        ind_col, ref_btn_col = st.columns([3, 1])
         with ind_col:
             st.markdown(
                 f'<div class="refresh-bar">'
-                f'<span class="{dot_cls}"></span> {label} · {updated_at}'
+                f'<span class="{dot_cls}"></span> {label} \u00b7 {updated_at}'
                 f"</div>",
                 unsafe_allow_html=True,
             )
-        with btn_col:
+        with ref_btn_col:
             if st.button("Refresh", key="refresh-btn", use_container_width=True):
                 st.rerun(scope="fragment")
 
@@ -655,16 +639,10 @@ with col_list:
         if active_runs:
             st.caption("ACTIVE")
             for run in active_runs:
-                items = repo.list_work_items(run.id)
-                _run_button(run, key_prefix="active", items=items)
+                work_items = client.get_work_items(run["run_id"])
+                _run_button(run, key_prefix="active", items=work_items)
 
-        # Recent completed/failed
-        if recent_runs:
-            st.caption("RECENT")
-            for run in recent_runs:
-                _run_button(run, key_prefix="recent")
-
-        # Older history
+        # History (all non-active)
         if history_runs:
             st.caption("HISTORY")
             for run in history_runs:
@@ -683,8 +661,8 @@ with col_detail:
             st.markdown(
                 "<div style='text-align:center; padding: 80px 20px; "
                 "color: #9ca3af;'>"
-                "<p style='font-size: 1.2rem;'>Select a crawl to view details"
-                "</p></div>",
+                "<p style='font-size: 1.2rem;'>"
+                "Select a crawl to view details</p></div>",
                 unsafe_allow_html=True,
             )
 
