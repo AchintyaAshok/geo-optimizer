@@ -202,15 +202,14 @@ class CrawlPipeline:
                     )
                 )
 
-            validators = {
-                url: self.repository.get_validator(url)
-                for url, _ in self.repository.get_discovered_urls(current_run.id)
-            }
+            # Don't use cached validators for new runs — always fetch fresh.
+            # Validators are only useful for incremental re-crawls of the
+            # same URL set, not for generating a new llms.txt.
             pages, new_validators = self.retry.run(
                 lambda: extract_metadata(
                     current_run.id,
                     self.repository.get_discovered_urls(current_run.id),
-                    validators,
+                    {},
                     on_page_event=on_page_event,
                 )
             )
