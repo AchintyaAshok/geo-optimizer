@@ -23,11 +23,14 @@ curl -s http://localhost:8000/health   # → {"status": "ok"}
 Use the integration test script to submit all URLs at once:
 
 ```bash
-make inttest                  # submit all categories (a, b, c)
-make inttest CATEGORY=a       # submit only Category A
-make inttest CATEGORY=b       # submit only Category B
-make inttest CATEGORY=c       # submit only Category C
+make inttest                              # submit all categories
+make inttest CATEGORY=llmstxt-sites       # sites with llms.txt
+make inttest CATEGORY=sitemap-sites       # sites with sitemap only
+make inttest CATEGORY=noinfo-sites        # sites with nothing (spider fallback)
+make inttest-list                         # list all sites without submitting
 ```
+
+Site definitions live in `resources/inttest-sites.json`.
 
 Or submit a single URL manually:
 

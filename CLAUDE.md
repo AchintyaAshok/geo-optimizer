@@ -73,7 +73,7 @@ tests/
 
 ## Environment Variables
 
-All configuration is centralised in `src/crawllmer/config.py` (Pydantic Settings).
+All configuration is centralised in `src/crawllmer/core/config.py` (Pydantic Settings).
 Variables are loaded from the environment or a `.env` file at the project root.
 See `.env.example` for the full list with inline documentation.
 
@@ -85,6 +85,9 @@ See `.env.example` for the full list with inline documentation.
 | `CRAWLLMER_LOG_LEVEL` | `DEBUG` | Logging severity (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
 | `CRAWLLMER_WORKER_POLL_SECONDS` | `2` | Worker polling interval |
 | `CRAWLLMER_UI_REFRESH_SECONDS` | `2` | Streamlit UI auto-refresh interval |
+| `CRAWLLMER_SPIDER_MAX_DEPTH` | `3` | Max link hops for fallback spider |
+| `CRAWLLMER_SPIDER_MAX_SCAN_PAGES` | `100` | Max pages to scan in spider Phase 1 |
+| `CRAWLLMER_SPIDER_MAX_INDEX_PAGES` | `50` | Max pages to index in spider Phase 2 |
 
 ## Observability
 

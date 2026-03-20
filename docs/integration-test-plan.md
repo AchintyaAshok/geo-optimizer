@@ -1,6 +1,8 @@
 # Integration Test Plan — Crawl & Generation
 
-This document defines the test matrix for end-to-end integration testing of crawllmer's crawl pipeline and llms.txt generation. It is intended to be consumed by an automated test agent using Playwright against a running `make run-dev` instance.
+This document defines the test matrix for end-to-end integration testing of crawllmer's crawl pipeline and llms.txt generation.
+
+The canonical list of test sites lives in [`resources/inttest-sites.json`](../resources/inttest-sites.json). Submit them with `make inttest` or list them with `make inttest-list`.
 
 ## Test Matrix
 

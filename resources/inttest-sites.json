@@ -1,0 +1,35 @@
+{
+  "categories": {
+    "llmstxt-sites": {
+      "name": "Sites with llms.txt",
+      "description": "These sites serve a valid /llms.txt. The crawler should discover URLs from it and generate structured output.",
+      "sites": [
+        {"id": "A1", "url": "https://nextjs.org", "notes": "Baseline — must pass. Docs, Blog, Learn sections."},
+        {"id": "A3", "url": "https://vite.dev", "notes": "Links to .md files — low confidence expected."},
+        {"id": "A5", "url": "https://docs.retool.com", "notes": "Documentation-focused, large."},
+        {"id": "A6", "url": "https://uploadcare.com", "notes": "Has robots.txt disallow directives."},
+        {"id": "A7", "url": "https://mariadb.com", "notes": "Very large site, may timeout on extraction."}
+      ]
+    },
+    "sitemap-sites": {
+      "name": "Sites with sitemap, no llms.txt",
+      "description": "These sites have no /llms.txt but serve a /sitemap.xml. The crawler should fall through to sitemap discovery.",
+      "sites": [
+        {"id": "B1", "url": "https://docs.python.org", "notes": "Small sitemap (7 entries), multi-language."},
+        {"id": "B2", "url": "https://flask.palletsprojects.com", "notes": "Read the Docs hosted, small."},
+        {"id": "B3", "url": "https://expressjs.com", "notes": "No robots.txt, direct sitemap probe. Multi-language."},
+        {"id": "B4", "url": "https://jquery.com", "notes": "WordPress sitemap index."}
+      ]
+    },
+    "noinfo-sites": {
+      "name": "No llms.txt, no sitemap (spider fallback)",
+      "description": "These sites have neither /llms.txt nor /sitemap.xml. The spider BFS crawler should discover pages by following links.",
+      "sites": [
+        {"id": "C1", "url": "https://httpbin.org", "notes": "Small site, 2 pages expected."},
+        {"id": "C2", "url": "https://info.cern.ch", "notes": "Birthplace of the web, ~100 pages by BFS."},
+        {"id": "C3", "url": "https://www.achintyaashok.com", "notes": "Personal site, ~7 pages with multiple sections."},
+        {"id": "C4", "url": "https://www.usa.gov", "notes": "Large government site, spider bounded by config."}
+      ]
+    }
+  }
+}
