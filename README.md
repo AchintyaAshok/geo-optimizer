@@ -75,18 +75,26 @@ make run-dev              # All three together
 
 The default configuration uses SQLite for everything — no external services required.
 
-### Docker
+### Docker (simple)
+
+Everything local with SQLite for the database, broker, and result backend. No external services needed.
 
 ```bash
-make docker-up                    # SQLite default (api + worker + ui)
-make redis-up                     # + Redis broker
-make distributed-up               # + Postgres + Redis (production-like)
-make docker-up-production-like    # All services: API + UI + Worker + Postgres + Redis + OTEL + Jaeger + Prometheus + Grafana
+make docker-up        # API + Worker + UI (SQLite for everything)
 ```
 
-### Full stack (`make docker-up-production-like`)
+| Service | URL |
+|---------|-----|
+| API | [http://localhost:8000](http://localhost:8000) |
+| Streamlit UI | [http://localhost:8501](http://localhost:8501) |
 
-Runs all application and observability services:
+### Docker (production-like)
+
+Full distributed stack: Postgres for the database, Redis for the Celery broker, and the complete OTEL observability suite.
+
+```bash
+make docker-up-production-like
+```
 
 | Service | URL | Purpose |
 |---------|-----|---------|
